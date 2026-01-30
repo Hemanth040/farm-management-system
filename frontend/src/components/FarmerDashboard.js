@@ -37,6 +37,7 @@ import ActivityTimeline from './ActivityTimeline';
 import ResourcesManagement from './ResourcesManagement';
 import FinancialDashboard from './FinancialDashboard';
 import CropHealthDashboard from './CropHealthDashboard';
+import ReportsDashboard from './ReportsDashboard';
 
 const FarmerDashboard = () => {
     const [activeTab, setActiveTab] = useState('overview');
@@ -294,6 +295,7 @@ const FarmerDashboard = () => {
             {activeTab === 'resources' && <ResourcesManagement />}
             {activeTab === 'financial' && <FinancialDashboard />}
             {activeTab === 'diseases' && <CropHealthDashboard />}
+            {activeTab === 'reports' && <ReportsDashboard />}
             {/* activeTab === 'planner' is handled by navigation now */}
         </Container>
     );

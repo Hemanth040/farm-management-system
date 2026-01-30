@@ -6,6 +6,7 @@ import CropPlanner from './components/CropPlanner';
 import FarmerDashboard from './components/FarmerDashboard';
 import SupervisorDashboard from './components/SupervisorDashboard';
 import WorkerDashboard from './components/WorkerDashboard';
+import ReportsDashboard from './components/ReportsDashboard';
 
 const theme = createTheme({
   palette: {
@@ -27,6 +28,7 @@ function App() {
           <Route path="/" element={<Navigate to="/dashboard" />} />
           <Route path="/dashboard" element={<FarmerDashboard />} />
           <Route path="/crop-planner" element={<CropPlanner />} />
+          <Route path="/reports" element={<ReportsDashboard />} />
           <Route path="/supervisor" element={<SupervisorDashboard />} />
           <Route path="/worker" element={<WorkerDashboard />} />
         </Routes>

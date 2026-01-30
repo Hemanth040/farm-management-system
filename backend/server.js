@@ -26,6 +26,7 @@ const timelineRoutes = require('./routes/timeline');
 const resourcesRoutes = require('./routes/resources');
 const financialRoutes = require('./routes/financial');
 const cropHealthRoutes = require('./routes/cropHealth');
+const reportsRoutes = require('./routes/reports');
 
 // Register Routes
 app.use('/api/auth', authRoutes);
@@ -37,6 +38,7 @@ app.use('/api/timeline', timelineRoutes);
 app.use('/api/resources', resourcesRoutes);
 app.use('/api/financial', financialRoutes);
 app.use('/api/crop-health', cropHealthRoutes);
+app.use('/api/reports', reportsRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

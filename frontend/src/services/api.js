@@ -296,4 +296,61 @@ export const farmerService = {
     getWeedManagement: (crop) => api.get('/farmer/weed-management', { params: { crop } }).then(res => res.data)
 };
 
+export const reportsService = {
+    // Farm Summary Report
+    getFarmSummary: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/reports/farm-summary?${queryParams}`).then(res => res.data);
+    },
+    
+    // Crop Performance Report
+    getCropPerformance: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/reports/crop-performance?${queryParams}`).then(res => res.data);
+    },
+    
+    // Activity Report
+    getActivityReport: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/reports/activity-report?${queryParams}`).then(res => res.data);
+    },
+    
+    // Resource Usage Report
+    getResourceUsage: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/reports/resource-usage?${queryParams}`).then(res => res.data);
+    },
+    
+    // Financial Report
+    getFinancialReport: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/reports/financial-report?${queryParams}`).then(res => res.data);
+    },
+    
+    // Worker Performance Report
+    getWorkerPerformance: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/reports/worker-performance?${queryParams}`).then(res => res.data);
+    },
+    
+    // Crop Health Report
+    getCropHealthReport: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/reports/crop-health?${queryParams}`).then(res => res.data);
+    },
+    
+    // Seasonal Comparison Report
+    getSeasonalComparison: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/reports/seasonal-comparison?${queryParams}`).then(res => res.data);
+    },
+    
+    // Export Report
+    exportReport: (reportType, format, params = {}) => {
+        return api.post('/reports/export', { reportType, format, filters: params }, {
+            responseType: format === 'csv' ? 'text' : 'json'
+        }).then(res => res.data);
+    }
+};
+
 export default api;
