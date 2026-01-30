@@ -17,11 +17,6 @@ import {
     TableHead,
     TableRow,
     Chip,
-    IconButton,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
     TextField,
     MenuItem,
     FormControl,
@@ -29,8 +24,6 @@ import {
     Select,
     Alert,
     LinearProgress,
-    Tooltip,
-    Divider,
     List,
     ListItem,
     ListItemText,
@@ -38,12 +31,9 @@ import {
     Avatar
 } from '@mui/material';
 import {
-    PictureAsPdf,
     GetApp,
     Assessment,
     TrendingUp,
-    TrendingDown,
-    TrendingFlat,
     CheckCircle,
     Warning,
     Error,
@@ -52,17 +42,12 @@ import {
     People,
     LocalFlorist,
     BarChart,
-    PieChart,
-    ShowChart,
-    Download,
-    Refresh,
-    DateRange,
-    FilterList
+    Refresh
 } from '@mui/icons-material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
-import { format, startOfYear, endOfYear } from 'date-fns';
+import { startOfYear, endOfYear } from 'date-fns';
 import {
     BarChart as ReBarChart,
     Bar,
@@ -104,11 +89,6 @@ const ReportsDashboard = () => {
     const [financialReport, setFinancialReport] = useState(null);
     const [workerPerformance, setWorkerPerformance] = useState(null);
     const [cropHealthReport, setCropHealthReport] = useState(null);
-    const [seasonalComparison, setSeasonalComparison] = useState(null);
-
-    useEffect(() => {
-        fetchAllReports();
-    }, [dateRange, selectedCrop]);
 
     const fetchAllReports = async () => {
         setLoading(true);
@@ -153,6 +133,11 @@ const ReportsDashboard = () => {
             setLoading(false);
         }
     };
+
+    useEffect(() => {
+        fetchAllReports();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dateRange, selectedCrop]);
 
     const handleExport = async (reportType, format) => {
         try {
@@ -527,7 +512,7 @@ const ReportsDashboard = () => {
     const renderActivityReport = () => {
         if (!activityReport) return <LinearProgress />;
         
-        const { summary, byType, byMonth, activities } = activityReport;
+        const { summary, byType, byMonth } = activityReport;
         
         return (
             <Box>
@@ -820,7 +805,7 @@ const ReportsDashboard = () => {
     const renderCropHealthReport = () => {
         if (!cropHealthReport) return <LinearProgress />;
         
-        const { summary, issuesByType, issuesBySeverity, healthRecords } = cropHealthReport;
+        const { summary, issuesByType, healthRecords } = cropHealthReport;
         
         return (
             <Box>
