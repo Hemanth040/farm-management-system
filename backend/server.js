@@ -28,6 +28,7 @@ const resourcesRoutes = require('./routes/resources');
 const financialRoutes = require('./routes/financial');
 const cropHealthRoutes = require('./routes/cropHealth');
 const reportsRoutes = require('./routes/reports');
+const weedManagementRoutes = require('./routes/weedManagement');
 
 // Register Routes
 app.use('/api/auth', authRoutes);
@@ -41,6 +42,7 @@ app.use('/api/resources', resourcesRoutes);
 app.use('/api/financial', financialRoutes);
 app.use('/api/crop-health', cropHealthRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/weeds', weedManagementRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

@@ -365,6 +365,55 @@ export const farmerService = {
     getWeedManagement: (crop) => api.get('/farmer/weed-management', { params: { crop } }).then(res => res.data)
 };
 
+// Weed Management Service
+export const weedService = {
+    // Weed Database
+    getWeeds: (filters = {}) => {
+        const params = new URLSearchParams(filters).toString();
+        return api.get(`/weeds?${params}`).then(res => res.data);
+    },
+    
+    getWeedById: (id) => api.get(`/weeds/${id}`).then(res => res.data),
+    
+    identifyWeed: (data) => api.post('/weeds/identify', data).then(res => res.data),
+    
+    getWeedsByCrop: (cropId) => api.get(`/weeds/crop/${cropId}`).then(res => res.data),
+    
+    // Weed Issues
+    getWeedIssues: (filters = {}) => {
+        const params = new URLSearchParams(filters).toString();
+        return api.get(`/weeds/issues?${params}`).then(res => res.data);
+    },
+    
+    getWeedIssueById: (id) => api.get(`/weeds/issues/${id}`).then(res => res.data),
+    
+    reportWeedIssue: (data) => api.post('/weeds/issues', data).then(res => res.data),
+    
+    updateWeedIssue: (id, data) => api.put(`/weeds/issues/${id}`, data).then(res => res.data),
+    
+    // Control Methods
+    checkCompatibility: (params) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/weeds/compatibility-check?${queryParams}`).then(res => res.data);
+    },
+    
+    applyControl: (data) => api.post('/weeds/control-apply', data).then(res => res.data),
+    
+    assignControl: (data) => api.post('/weeds/assign-control', data).then(res => res.data),
+    
+    addMonitoring: (data) => api.post('/weeds/monitoring', data).then(res => res.data),
+    
+    // Analytics & History
+    getFieldHistory: (fieldId) => api.get(`/weeds/history/${fieldId}`).then(res => res.data),
+    
+    getWeedAnalytics: (cropId) => api.get(`/weeds/analytics/${cropId}`).then(res => res.data),
+    
+    checkSeverity: (params) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/weeds/severity-check?${queryParams}`).then(res => res.data);
+    }
+};
+
 export const reportsService = {
     // Farm Summary Report
     getFarmSummary: (params = {}) => {

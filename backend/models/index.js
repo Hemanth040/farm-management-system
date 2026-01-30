@@ -108,24 +108,201 @@ const warningSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
-// Sale Schema
+// Sale Schema - Comprehensive selling management
 const saleSchema = new mongoose.Schema({
     farmer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    crop: { type: mongoose.Schema.Types.ObjectId, ref: 'Crop' },
-    cropName: String,
-    quantity: { type: Number, required: true },
-    unit: { type: String, default: 'kg' },
-    pricePerUnit: { type: Number, required: true },
-    totalAmount: Number,
-    buyer: {
-        name: String,
-        contact: String,
-        type: { type: String, enum: ['individual', 'market', 'contractor', 'government'] }
+    
+    // Produce Details
+    crop: { type: mongoose.Schema.Types.ObjectId, ref: 'Crop', required: true },
+    cropName: { type: String, required: true },
+    variety: String,
+    
+    // Quality & Quantity
+    quality: {
+        grade: { type: String, enum: ['A', 'B', 'C', 'Premium', 'Standard'], default: 'Standard' },
+        moistureContent: Number,
+        notes: String
     },
+    quantity: {
+        value: { type: Number, required: true },
+        unit: { type: String, enum: ['kg', 'quintal', 'ton', 'bag'], default: 'kg' }
+    },
+    
+    // Sale Details
     saleDate: { type: Date, default: Date.now },
-    status: { type: String, enum: ['pending', 'completed', 'cancelled'], default: 'pending' },
+    pricePerUnit: { type: Number, required: true },
+    totalAmount: { type: Number, required: true },
+    
+    // Buyer Details
+    buyer: { type: mongoose.Schema.Types.ObjectId, ref: 'Buyer' },
+    buyerName: String,
+    buyerType: { type: String, enum: ['trader', 'mill', 'market', 'direct_consumer', 'contractor', 'government'] },
+    
+    // Sale Channel
+    saleChannel: { 
+        type: String, 
+        enum: ['mandi', 'trader', 'direct', 'contract', 'online'],
+        required: true 
+    },
+    
+    // Payment Details
+    payment: {
+        status: { 
+            type: String, 
+            enum: ['pending', 'partial', 'paid', 'overdue'],
+            default: 'pending'
+        },
+        mode: { 
+            type: String, 
+            enum: ['cash', 'upi', 'bank_transfer', 'check'],
+            default: 'cash'
+        },
+        amountPaid: { type: Number, default: 0 },
+        amountPending: { type: Number, default: 0 },
+        dueDate: Date,
+        installments: [{
+            date: Date,
+            amount: Number,
+            mode: String,
+            reference: String
+        }]
+    },
+    
+    // Financial Linking
+    linkedTransaction: { type: mongoose.Schema.Types.ObjectId, ref: 'FinancialTransaction' },
+    
+    // Quality Documentation
+    documents: {
+        weightSlip: String,
+        qualityCertificate: String,
+        invoice: String,
+        receipt: String
+    },
+    
+    // Cost Analysis
+    costAnalysis: {
+        productionCost: Number,
+        transportCost: Number,
+        packagingCost: Number,
+        otherCosts: Number,
+        totalCost: Number
+    },
+    profit: Number,
+    profitMargin: Number,
+    
+    // Contract Details
+    contract: {
+        isContractSale: { type: Boolean, default: false },
+        contractId: String,
+        agreedPrice: Number,
+        deliveryDate: Date,
+        terms: String
+    },
+    
+    // Transport Details
+    transport: {
+        vehicleNumber: String,
+        driverName: String,
+        driverPhone: String,
+        distance: Number,
+        cost: Number
+    },
+    
     notes: String,
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+});
+
+// Buyer Schema
+const buyerSchema = new mongoose.Schema({
+    farmer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    name: { type: String, required: true },
+    phone: String,
+    email: String,
+    type: { 
+        type: String, 
+        enum: ['trader', 'mill', 'market', 'direct_consumer', 'contractor', 'exporter', 'government'],
+        required: true 
+    },
+    location: {
+        address: String,
+        city: String,
+        state: String,
+        mandiName: String
+    },
+    businessName: String,
+    gstNumber: String,
+    licenseNumber: String,
+    bankDetails: {
+        accountName: String,
+        accountNumber: String,
+        bankName: String,
+        ifscCode: String
+    },
+    upiId: String,
+    preferredCrops: [String],
+    preferredPaymentMode: String,
+    performance: {
+        totalTransactions: { type: Number, default: 0 },
+        totalVolume: { type: Number, default: 0 },
+        totalAmount: { type: Number, default: 0 },
+        averagePrice: { type: Number, default: 0 },
+        averagePaymentDelay: { type: Number, default: 0 },
+        reliability: { type: Number, default: 5, min: 1, max: 5 },
+        lastTransaction: Date
+    },
+    status: { type: String, enum: ['active', 'inactive', 'blacklisted'], default: 'active' },
+    notes: String,
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+});
+
+// Market Price Schema
+const marketPriceSchema = new mongoose.Schema({
+    crop: { type: String, required: true },
+    variety: String,
+    market: {
+        name: String,
+        location: String,
+        state: String,
+        type: { type: String, enum: ['mandi', 'apmc', 'private', 'online'] }
+    },
+    price: {
+        min: Number,
+        max: Number,
+        avg: Number,
+        unit: { type: String, default: 'quintal' }
+    },
+    quality: {
+        grade: String,
+        description: String
+    },
+    date: { type: Date, default: Date.now },
+    trend: { type: String, enum: ['up', 'down', 'stable'], default: 'stable' },
+    source: String,
+    confidence: { type: Number, min: 0, max: 100 },
     createdAt: { type: Date, default: Date.now }
+});
+
+// Selling Alert Schema
+const sellingAlertSchema = new mongoose.Schema({
+    farmer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    type: { 
+        type: String, 
+        enum: ['payment_overdue', 'price_drop', 'best_selling_window', 'contract_reminder'],
+        required: true 
+    },
+    crop: { type: mongoose.Schema.Types.ObjectId, ref: 'Crop' },
+    sale: { type: mongoose.Schema.Types.ObjectId, ref: 'Sale' },
+    title: String,
+    message: String,
+    severity: { type: String, enum: ['low', 'medium', 'high', 'critical'], default: 'medium' },
+    status: { type: String, enum: ['active', 'acknowledged', 'resolved'], default: 'active' },
+    actionRequired: String,
+    actionTaken: String,
+    createdAt: { type: Date, default: Date.now },
+    acknowledgedAt: Date,
+    resolvedAt: Date
 });
 
 // Expense Schema
@@ -313,6 +490,8 @@ const Resource = require('./Resource');
 const { FinancialTransaction, Budget } = require('./Financial');
 const CropHealth = require('./CropHealth');
 const Disease = require('./DiseaseDatabase');
+const Weed = require('./Weed');
+const WeedIssue = require('./WeedIssue');
 
 module.exports = {
     User,
@@ -328,6 +507,8 @@ module.exports = {
     Budget,
     CropHealth,
     Disease,
+    Weed,
+    WeedIssue,
     Farmer,
     Reminder,
     Warning,
