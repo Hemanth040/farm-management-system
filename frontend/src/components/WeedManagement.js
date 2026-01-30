@@ -99,7 +99,6 @@ import {
     Analytics,
     SupportAgent,
     Gavel,
-    Eco,
     Nature,
     Build,
     LocalDrink,
@@ -566,7 +565,7 @@ const CONTROL_METHODS = [
     { value: 'mechanical', label: 'Mechanical', icon: Build, description: 'Manual/Mechanical removal' },
     { value: 'chemical', label: 'Chemical', icon: Science, description: 'Herbicide application' },
     { value: 'cultural', label: 'Cultural', icon: Agriculture, description: 'Crop rotation, mulching, etc.' },
-    { value: 'organic', label: 'Organic', icon: Eco, description: 'Organic herbicides and methods' },
+    { value: 'organic', label: 'Organic', icon: Spa, description: 'Organic herbicides and methods' },
     { value: 'biological', label: 'Biological', icon: BugReport, description: 'Natural enemies and bio-control' }
 ];
 
@@ -1083,7 +1082,7 @@ const WeedManagement = () => {
                         <Card>
                             <CardContent>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                                    <Eco color="success" />
+                                    <Spa color="success" />
                                     <Typography color="textSecondary" variant="caption">Organic Used</Typography>
                                 </Box>
                                 <Typography variant="h4" color="success.main">{stats.organicOptionsUsed}</Typography>
@@ -1766,7 +1765,7 @@ const WeedManagement = () => {
                                 {MOCK_HERBICIDES.filter(h => h.organic).map(herbicide => (
                                     <ListItem key={herbicide.id}>
                                         <ListItemIcon>
-                                            <Eco color="success" />
+                                            <Spa color="success" />
                                         </ListItemIcon>
                                         <ListItemText
                                             primary={herbicide.name}
@@ -1921,7 +1920,7 @@ const WeedManagement = () => {
                                 <AccordionDetails>
                                     <List dense>
                                         <ListItem>
-                                            <ListItemIcon><Eco color="success" /></ListItemIcon>
+                                            <ListItemIcon><Spa color="success" /></ListItemIcon>
                                             <ListItemText primary="Mulching" secondary="Apply 10-15 cm organic mulch" />
                                         </ListItem>
                                         <ListItem>
