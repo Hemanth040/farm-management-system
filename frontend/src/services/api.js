@@ -323,6 +323,77 @@ export const authService = {
     }
 };
 
+export const warningsRemindersService = {
+    // Get all warnings
+    getWarnings: (filters = {}) => {
+        const params = new URLSearchParams();
+        Object.keys(filters).forEach(key => {
+            if (filters[key]) params.append(key, filters[key]);
+        });
+        return api.get(`/warnings?${params.toString()}`).then(res => res.data);
+    },
+    
+    // Get a single warning by ID
+    getWarningById: (id) => api.get(`/warnings/${id}`).then(res => res.data),
+    
+    // Create a new warning
+    createWarning: (data) => api.post('/warnings', data).then(res => res.data),
+    
+    // Update a warning
+    updateWarning: (id, data) => api.put(`/warnings/${id}`, data).then(res => res.data),
+    
+    // Acknowledge warning
+    acknowledgeWarning: (id) => api.post(`/warnings/${id}/acknowledge`).then(res => res.data),
+    
+    // Dismiss warning
+    dismissWarning: (id) => api.post(`/warnings/${id}/dismiss`).then(res => res.data),
+    
+    // Get all reminders
+    getReminders: (filters = {}) => {
+        const params = new URLSearchParams();
+        Object.keys(filters).forEach(key => {
+            if (filters[key]) params.append(key, filters[key]);
+        });
+        return api.get(`/reminders?${params.toString()}`).then(res => res.data);
+    },
+    
+    // Get a single reminder by ID
+    getReminderById: (id) => api.get(`/reminders/${id}`).then(res => res.data),
+    
+    // Create a new reminder
+    createReminder: (data) => api.post('/reminders', data).then(res => res.data),
+    
+    // Update a reminder
+    updateReminder: (id, data) => api.put(`/reminders/${id}`, data).then(res => res.data),
+    
+    // Delete a reminder
+    deleteReminder: (id) => api.delete(`/reminders/${id}`).then(res => res.data),
+    
+    // Complete reminder
+    completeReminder: (id) => api.post(`/reminders/${id}/complete`).then(res => res.data),
+    
+    // Snooze reminder
+    snoozeReminder: (id, duration) => api.post(`/reminders/${id}/snooze`, { duration }).then(res => res.data),
+    
+    // Get statistics
+    getStatistics: () => api.get('/warnings-reminders/statistics').then(res => res.data),
+    
+    // Get calendar view
+    getCalendar: (month, year) => api.get('/warnings-reminders/calendar', { params: { month, year } }).then(res => res.data),
+    
+    // Get activity feed
+    getActivityFeed: (limit = 20) => api.get('/warnings-reminders/activity', { params: { limit } }).then(res => res.data),
+    
+    // Bulk operations
+    bulkAcknowledge: (ids) => api.post('/warnings/bulk-acknowledge', { ids }).then(res => res.data),
+    bulkComplete: (ids) => api.post('/reminders/bulk-complete', { ids }).then(res => res.data),
+    bulkDelete: (ids) => api.post('/reminders/bulk-delete', { ids }).then(res => res.data),
+    
+    // Settings
+    getSettings: () => api.get('/warnings-reminders/settings').then(res => res.data),
+    updateSettings: (data) => api.put('/warnings-reminders/settings', data).then(res => res.data)
+};
+
 export const farmerService = {
     // Reminders
     getReminders: () => api.get('/farmer/reminders').then(res => res.data),

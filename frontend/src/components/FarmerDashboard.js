@@ -40,6 +40,7 @@ import CropHealthDashboard from './CropHealthDashboard';
 import ReportsDashboard from './ReportsDashboard';
 import WorkersManagement from './WorkersManagement';
 import WeedManagement from './WeedManagement';
+import WarningsReminders from './WarningsReminders';
 
 const FarmerDashboard = () => {
     const [activeTab, setActiveTab] = useState('overview');
@@ -300,6 +301,8 @@ const FarmerDashboard = () => {
             {activeTab === 'reports' && <ReportsDashboard />}
             {activeTab === 'workers' && <WorkersManagement />}
             {activeTab === 'weeds' && <WeedManagement />}
+            {activeTab === 'warnings' && <WarningsReminders />}
+            {activeTab === 'reminders' && <WarningsReminders />}
             {/* activeTab === 'planner' is handled by navigation now */}
         </Container>
     );
