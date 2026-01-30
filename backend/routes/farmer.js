@@ -1,9 +1,19 @@
 const express = require('express');
 const router = express.Router();
-const { Farmer, Reminder, Warning, Crop, Activity, Resource, Expense, Income } = require('../models');
+const { Farmer, Reminder, Warning, Crop, Activity, Resource, Expense, Income, Worker } = require('../models');
 
 // Middleware for authentication
 const auth = require('../middleware/auth');
+
+// Worker List
+router.get('/workers', auth, async (req, res) => {
+    try {
+        const workers = await Worker.find({ farmer: req.user.id });
+        res.json(workers);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // 1. REMINDERS
 router.post('/reminders', auth, async (req, res) => {
@@ -283,5 +293,119 @@ router.get('/weed-management', auth, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// Helper function to generate yield report
+async function generateYieldReport(farmerId, year) {
+    const startDate = new Date(`${year || new Date().getFullYear()}-01-01`);
+    const endDate = new Date(`${year || new Date().getFullYear()}-12-31`);
+    
+    const crops = await Crop.find({
+        farmer: farmerId,
+        actualHarvestDate: { $gte: startDate, $lte: endDate }
+    });
+    
+    const totalArea = crops.reduce((sum, c) => sum + c.area, 0);
+    const totalYield = crops.reduce((sum, c) => sum + (c.actualYield || 0), 0);
+    const avgYieldPerAcre = totalArea > 0 ? totalYield / totalArea : 0;
+    
+    return {
+        year: year || new Date().getFullYear(),
+        totalCrops: crops.length,
+        totalArea,
+        totalYield,
+        avgYieldPerAcre: avgYieldPerAcre.toFixed(2),
+        crops: crops.map(c => ({
+            name: c.name,
+            variety: c.variety,
+            area: c.area,
+            yield: c.actualYield,
+            yieldPerAcre: c.area > 0 ? (c.actualYield / c.area).toFixed(2) : 0
+        }))
+    };
+}
+
+// Helper function to generate financial report
+async function generateFinancialReport(farmerId, year) {
+    const startDate = new Date(`${year || new Date().getFullYear()}-01-01`);
+    const endDate = new Date(`${year || new Date().getFullYear()}-12-31`);
+    
+    const expenses = await Expense.find({
+        farmer: farmerId,
+        date: { $gte: startDate, $lte: endDate }
+    });
+    
+    const income = await Income.find({
+        farmer: farmerId,
+        date: { $gte: startDate, $lte: endDate }
+    });
+    
+    const totalExpense = expenses.reduce((sum, e) => sum + e.amount, 0);
+    const totalIncome = income.reduce((sum, i) => sum + i.amount, 0);
+    const netProfit = totalIncome - totalExpense;
+    
+    // Calculate category-wise breakdown
+    const expenseByCategory = expenses.reduce((acc, e) => {
+        acc[e.category] = (acc[e.category] || 0) + e.amount;
+        return acc;
+    }, {});
+    
+    const incomeBySource = income.reduce((acc, i) => {
+        acc[i.source] = (acc[i.source] || 0) + i.amount;
+        return acc;
+    }, {});
+    
+    return {
+        year: year || new Date().getFullYear(),
+        summary: {
+            totalIncome,
+            totalExpense,
+            netProfit,
+            profitMargin: totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0
+        },
+        expenseByCategory,
+        incomeBySource,
+        expenseCount: expenses.length,
+        incomeCount: income.length
+    };
+}
+
+// Helper function to generate resource report
+async function generateResourceReport(farmerId, year) {
+    const resources = await Resource.find({ farmer: farmerId });
+    
+    const totalValue = resources.reduce((sum, r) => sum + (r.totalCost || 0), 0);
+    const lowStockCount = resources.filter(r => r.availableQuantity <= r.minimumThreshold).length;
+    const equipmentCount = resources.filter(r => r.isEquipment).length;
+    
+    // Group by category
+    const byCategory = resources.reduce((acc, r) => {
+        if (!acc[r.category]) {
+            acc[r.category] = { count: 0, value: 0 };
+        }
+        acc[r.category].count++;
+        acc[r.category].value += r.totalCost || 0;
+        return acc;
+    }, {});
+    
+    return {
+        year: year || new Date().getFullYear(),
+        summary: {
+            totalItems: resources.length,
+            totalValue,
+            lowStockCount,
+            equipmentCount,
+            activeCount: resources.filter(r => r.isActive).length
+        },
+        byCategory,
+        items: resources.map(r => ({
+            name: r.name,
+            category: r.category,
+            available: r.availableQuantity,
+            total: r.totalQuantity,
+            unit: r.unit,
+            value: r.totalCost || 0
+        }))
+    };
+}
 
 module.exports = router;

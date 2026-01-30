@@ -1,0 +1,5365 @@
+-e 
+===== FILE: ./models/index.js =====
+
+const mongoose = require('mongoose');
+
+// Crop Schema
+const cropSchema = new mongoose.Schema({
+    farmer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    name: { type: String, required: true },
+    variety: String,
+    season: { type: String, enum: ['rabi', 'kharif', 'zaid'] },
+    landType: { type: String, enum: ['sandy', 'loam', 'clay'] },
+    area: { type: Number, required: true },
+    sowingDate: { type: Date, required: true },
+    expectedHarvestDate: { type: Date, required: true },
+    soilType: String,
+    waterSource: String,
+    status: { 
+        type: String, 
+        enum: ['planned', 'sowed', 'growing', 'harvested', 'failed'],
+        default: 'planned'
+    },
+    actualHarvestDate: Date,
+    actualYield: Number,
+    createdAt: { type: Date, default: Date.now }
+});
+
+// Crop Plan Schema
+const cropPlanSchema = new mongoose.Schema({
+    crop: { type: mongoose.Schema.Types.ObjectId, ref: 'Crop', required: true },
+    seedRequired: String,
+    fertilizerRequired: String,
+    waterRequirement: String,
+    expectedYield: String,
+    duration: String,
+    totalCost: Number,
+    operations: [{
+        name: String,
+        description: String,
+        daysAfterSowing: Number,
+        type: String,
+        resources: [{
+            name: String,
+            quantity: Number,
+            unit: String
+        }]
+    }],
+    createdAt: { type: Date, default: Date.now }
+});
+
+// Timeline Event Schema
+const timelineEventSchema = new mongoose.Schema({
+    farmer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    crop: { type: mongoose.Schema.Types.ObjectId, ref: 'Crop' },
+    title: { type: String, required: true },
+    description: String,
+    type: { 
+        type: String, 
+        enum: ['sowing', 'irrigation', 'fertilizer', 'pest-control', 'weeding', 'harvesting', 'other'],
+        required: true 
+    },
+    date: { type: Date, required: true },
+    status: { 
+        type: String, 
+        enum: ['upcoming', 'in-progress', 'completed', 'cancelled'],
+        default: 'upcoming'
+    },
+    completedDate: Date,
+    notes: String,
+    createdAt: { type: Date, default: Date.now }
+});
+
+// Create models (checking if they exist first to prevent overwrite errors in some environments)
+const Crop = mongoose.models.Crop || mongoose.model('Crop', cropSchema);
+const CropPlan = mongoose.models.CropPlan || mongoose.model('CropPlan', cropPlanSchema);
+const TimelineEvent = mongoose.models.TimelineEvent || mongoose.model('TimelineEvent', timelineEventSchema);
+
+// Helper for other models if needed, or simply export these
+// Since the prompt provided specific models, we focus on them.
+// We also need to ensure other models referenced in the app (like Activity) are available if used.
+// The provided code block only showed these 3 models export. 
+// However, the routes use 'Activity'. Let's include a generic definition for Activity if not defined.
+
+const activitySchema = new mongoose.Schema({}, { strict: false });
+const Activity = mongoose.models.Activity || mongoose.model('Activity', activitySchema);
+
+const Worker = require('./Worker');
+const Field = require('./Field');
+const TimelineActivity = require('./Timeline');
+const Resource = require('./Resource');
+const { FinancialTransaction, Budget } = require('./Financial');
+const CropHealth = require('./CropHealth');
+const Disease = require('./DiseaseDatabase');
+
+module.exports = {
+    Crop,
+    CropPlan,
+    TimelineEvent,
+    Activity,
+    Worker,
+    Field,
+    TimelineActivity,
+    Resource,
+    FinancialTransaction,
+    Budget,
+    CropHealth,
+    Disease
+};-e 
+===== FILE: ./models/Timeline.js =====
+
+const mongoose = require('mongoose');
+
+// Activity Types Enum
+const ACTIVITY_TYPES = [
+    'sowing', 'transplanting', 'irrigation', 'fertilizer', 
+    'pesticide', 'herbicide', 'field_preparation', 'harvesting',
+    'weeding', 'maintenance', 'labor', 'payment', 'issue',
+    'inspection', 'soil_testing', 'pruning', 'thinning'
+];
+
+// Status Enum
+const STATUS_TYPES = ['upcoming', 'in_progress', 'completed', 'missed', 'delayed', 'cancelled'];
+
+const timelineActivitySchema = new mongoose.Schema({
+    farmer: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    
+    // Basic Information
+    title: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    description: String,
+    
+    // Activity Type & Category
+    type: {
+        type: String,
+        enum: ACTIVITY_TYPES,
+        required: true
+    },
+    category: {
+        type: String,
+        enum: ['crop', 'resource', 'financial', 'labor', 'maintenance', 'other'],
+        default: 'crop'
+    },
+    
+    // Status Tracking
+    status: {
+        type: String,
+        enum: STATUS_TYPES,
+        default: 'upcoming'
+    },
+    priority: {
+        type: String,
+        enum: ['low', 'medium', 'high', 'critical'],
+        default: 'medium'
+    },
+    
+    // Date & Time Management
+    plannedDate: {
+        type: Date,
+        required: true
+    },
+    plannedStartTime: String,
+    plannedEndTime: String,
+    
+    actualDate: Date,
+    actualStartTime: String,
+    actualEndTime: String,
+    
+    duration: {  // in hours
+        type: Number,
+        default: 1
+    },
+    
+    // Associations
+    crop: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Crop'
+    },
+    cropName: String, // Denormalized for quick access
+    cropVariety: String,
+    
+    field: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Field'
+    },
+    fieldName: String,
+    area: Number, // in acres
+    
+    // Worker Management
+    assignedTo: [{
+        worker: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Worker'
+        },
+        workerName: String,
+        role: String,
+        hoursWorked: Number,
+        wage: Number
+    }],
+    
+    supervisor: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    
+    // Resource Usage
+    resources: [{
+        name: String,
+        quantity: Number,
+        unit: String,
+        cost: Number,
+        supplier: String
+    }],
+    
+    // Financial Tracking
+    costEstimate: Number,
+    actualCost: Number,
+    paymentStatus: {
+        type: String,
+        enum: ['pending', 'partial', 'paid'],
+        default: 'pending'
+    },
+    
+    // Attachments & Evidence
+    attachments: [{
+        filename: String,
+        url: String,
+        type: String, // photo, invoice, report, other
+        uploadedAt: Date
+    }],
+    
+    // Issues & Alerts
+    issues: [{
+        type: String,
+        description: String,
+        reportedAt: Date,
+        resolved: Boolean
+    }],
+    
+    weatherImpact: {
+        alertType: String,
+        impact: String,
+        notes: String
+    },
+    
+    // Communication
+    comments: [{
+        user: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        userName: String,
+        userRole: String,
+        text: String,
+        createdAt: Date,
+        attachments: [String]
+    }],
+    
+    // Analytics & Performance
+    efficiencyScore: Number, // 1-10
+    delayReason: String,
+    qualityCheck: {
+        passed: Boolean,
+        notes: String,
+        checkedBy: String,
+        checkedAt: Date
+    },
+    
+    // Audit Trail
+    createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    updatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    source: {
+        type: String,
+        enum: ['manual', 'crop_plan', 'reminder', 'weather', 'ai_generated'],
+        default: 'manual'
+    },
+    
+    // Metadata
+    tags: [String],
+    isRecurring: Boolean,
+    recurrencePattern: String, // daily, weekly, monthly
+    
+    // Offline Support
+    offlineId: String,
+    syncStatus: {
+        type: String,
+        enum: ['synced', 'pending', 'conflict'],
+        default: 'synced'
+    },
+    
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+});
+
+// Indexes for fast queries
+timelineActivitySchema.index({ farmer: 1, plannedDate: 1 });
+timelineActivitySchema.index({ farmer: 1, status: 1 });
+timelineActivitySchema.index({ farmer: 1, crop: 1 });
+timelineActivitySchema.index({ farmer: 1, type: 1 });
+timelineActivitySchema.index({ farmer: 1, 'assignedTo.worker': 1 });
+timelineActivitySchema.index({ plannedDate: 1, status: 'upcoming' });
+
+// Pre-save middleware
+timelineActivitySchema.pre('save', function(next) {
+    this.updatedAt = new Date();
+    
+    // Auto-calculate delay if completed after planned date
+    if (this.status === 'completed' && this.actualDate && this.plannedDate) {
+        const delayDays = Math.floor((this.actualDate - this.plannedDate) / (1000 * 60 * 60 * 24));
+        if (delayDays > 0) {
+            this.status = 'delayed';
+            this.delayReason = this.delayReason || 'Completed late';
+        }
+    }
+    
+    next();
+});
+
+// Static method to get overdue activities
+timelineActivitySchema.statics.getOverdueActivities = function(farmerId) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    return this.find({
+        farmer: farmerId,
+        status: 'upcoming',
+        plannedDate: { $lt: today }
+    });
+};
+
+// Method to mark activity as in progress
+timelineActivitySchema.methods.startActivity = function() {
+    this.status = 'in_progress';
+    this.actualStartTime = new Date().toLocaleTimeString();
+    return this.save();
+};
+
+// Method to complete activity
+timelineActivitySchema.methods.completeActivity = function(notes, attachments) {
+    this.status = 'completed';
+    this.actualDate = new Date();
+    this.actualEndTime = new Date().toLocaleTimeString();
+    
+    if (notes) this.comments.push({
+        user: this.updatedBy,
+        text: notes,
+        createdAt: new Date()
+    });
+    
+    if (attachments) this.attachments.push(...attachments);
+    
+    return this.save();
+};
+
+module.exports = mongoose.model('TimelineActivity', timelineActivitySchema);
+-e 
+===== FILE: ./models/Worker.js =====
+
+const mongoose = require('mongoose');
+
+const workerSchema = new mongoose.Schema({
+    farmer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    name: { type: String, required: true },
+    phone: String,
+    role: { type: String, default: 'worker' },
+    status: { type: String, default: 'active' },
+    createdAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('Worker', workerSchema);
+-e 
+===== FILE: ./models/Field.js =====
+
+const mongoose = require('mongoose');
+
+const fieldSchema = new mongoose.Schema({
+    farmer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    name: { type: String, required: true },
+    size: Number,
+    location: String,
+    soilType: String,
+    status: { type: String, default: 'active' },
+    createdAt: { type: Date, default: Date.now }
+});
+
+module.exports = mongoose.model('Field', fieldSchema);
+-e 
+===== FILE: ./models/Resource.js =====
+
+const mongoose = require('mongoose');
+
+// Resource Categories
+const RESOURCE_CATEGORIES = [
+    'seeds', 'fertilizers', 'pesticides', 'herbicides', 'equipment', 
+    'machinery', 'water', 'fuel', 'electricity', 'storage', 
+    'tools', 'feed', 'medicines', 'packaging', 'other'
+];
+
+// Unit Types
+const UNIT_TYPES = [
+    'kg', 'g', 'liters', 'ml', 'bags', 'packets', 'units', 
+    'pieces', 'boxes', 'cartons', 'hours', 'days', 'acres'
+];
+
+// Equipment Status
+const EQUIPMENT_STATUS = ['active', 'maintenance', 'damaged', 'retired', 'rented'];
+
+const resourceSchema = new mongoose.Schema({
+    farmer: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    
+    // Basic Information
+    name: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    description: String,
+    category: {
+        type: String,
+        enum: RESOURCE_CATEGORIES,
+        required: true
+    },
+    brand: String,
+    model: String,
+    specification: String,
+    
+    // Inventory Management
+    unit: {
+        type: String,
+        enum: UNIT_TYPES,
+        required: true
+    },
+    totalQuantity: {
+        type: Number,
+        required: true,
+        default: 0,
+        min: 0
+    },
+    availableQuantity: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    usedQuantity: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    minimumThreshold: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    reorderPoint: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    
+    // Location & Storage
+    location: {
+        type: String,
+        enum: ['store_room', 'field', 'godown', 'cold_storage', 'pump_house', 'shed', 'other'],
+        default: 'store_room'
+    },
+    storageUnit: String,
+    shelfNumber: String,
+    binNumber: String,
+    
+    // Cost & Purchase
+    purchaseDate: Date,
+    vendor: {
+        name: String,
+        contact: String,
+        address: String,
+        rating: {
+            type: Number,
+            min: 1,
+            max: 5
+        }
+    },
+    costPerUnit: Number,
+    totalCost: Number,
+    invoiceNumber: String,
+    invoiceImage: String,
+    warrantyPeriod: Number, // in months
+    warrantyExpiry: Date,
+    
+    // Expiry & Safety
+    manufacturingDate: Date,
+    expiryDate: Date,
+    shelfLife: Number, // in days
+    safetyInstructions: [String],
+    isHazardous: Boolean,
+    handlingPrecautions: [String],
+    
+    // Equipment Specific
+    isEquipment: {
+        type: Boolean,
+        default: false
+    },
+    equipmentType: String,
+    equipmentStatus: {
+        type: String,
+        enum: EQUIPMENT_STATUS,
+        default: 'active'
+    },
+    equipmentHours: Number,
+    lastMaintenanceDate: Date,
+    nextMaintenanceDate: Date,
+    maintenanceInterval: Number, // in hours/days
+    fuelConsumption: Number, // liters per hour
+    operatorRequired: Boolean,
+    serviceHistory: [{
+        date: Date,
+        type: String,
+        cost: Number,
+        description: String,
+        serviceBy: String,
+        nextDue: Date
+    }],
+    
+    // Crop Association
+    crops: [{
+        crop: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Crop'
+        },
+        cropName: String,
+        usageRate: Number, // kg per acre
+        applicationMethod: String,
+        recommendedSeason: [String]
+    }],
+    
+    // Usage Tracking
+    usageHistory: [{
+        date: Date,
+        activity: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'TimelineActivity'
+        },
+        activityTitle: String,
+        crop: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Crop'
+        },
+        cropName: String,
+        quantity: Number,
+        worker: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Worker'
+        },
+        workerName: String,
+        notes: String,
+        approved: {
+            type: Boolean,
+            default: false
+        },
+        approvedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        }
+    }],
+    
+    // Worker Access & Permissions
+    allowedWorkers: [{
+        worker: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Worker'
+        },
+        permission: {
+            type: String,
+            enum: ['view', 'use', 'manage'],
+            default: 'use'
+        }
+    }],
+    
+    // Supervisor Recommendations
+    supervisorNotes: [{
+        supervisor: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        supervisorName: String,
+        note: String,
+        date: Date,
+        approved: Boolean
+    }],
+    
+    // Reports & Analytics
+    monthlyUsage: [{
+        month: String, // YYYY-MM
+        quantity: Number,
+        cost: Number
+    }],
+    
+    // Alerts & Warnings
+    alerts: [{
+        type: String,
+        message: String,
+        severity: {
+            type: String,
+            enum: ['low', 'medium', 'high', 'critical'],
+            default: 'medium'
+        },
+        date: Date,
+        resolved: {
+            type: Boolean,
+            default: false
+        }
+    }],
+    
+    // Tags & Metadata
+    tags: [String],
+    isActive: {
+        type: Boolean,
+        default: true
+    },
+    isArchived: {
+        type: Boolean,
+        default: false
+    },
+    
+    // Audit Trail
+    createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    updatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    lastUpdated: Date,
+    
+    // Offline Support
+    offlineId: String,
+    syncStatus: {
+        type: String,
+        enum: ['synced', 'pending', 'conflict'],
+        default: 'synced'
+    },
+    
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+});
+
+// Indexes for performance
+resourceSchema.index({ farmer: 1, category: 1 });
+resourceSchema.index({ farmer: 1, isEquipment: 1 });
+resourceSchema.index({ farmer: 1, availableQuantity: 1 });
+resourceSchema.index({ farmer: 1, expiryDate: 1 });
+resourceSchema.index({ farmer: 1, 'alerts.resolved': 1 });
+resourceSchema.index({ expiryDate: 1, availableQuantity: { $gt: 0 } });
+
+// Pre-save middleware for calculations
+resourceSchema.pre('save', function(next) {
+    this.updatedAt = new Date();
+    
+    // Auto-calculate total cost
+    if (this.costPerUnit && this.totalQuantity) {
+        this.totalCost = this.costPerUnit * this.totalQuantity;
+    }
+    
+    // Auto-calculate available quantity
+    if (this.totalQuantity !== undefined && this.usedQuantity !== undefined) {
+        this.availableQuantity = this.totalQuantity - this.usedQuantity;
+    }
+    
+    // Auto-generate alerts
+    this.generateAlerts();
+    
+    next();
+});
+
+// Generate alerts based on conditions
+resourceSchema.methods.generateAlerts = function() {
+    const alerts = [];
+    const now = new Date();
+    
+    // Low stock alert
+    if (this.availableQuantity <= this.minimumThreshold && this.availableQuantity > 0) {
+        alerts.push({
+            type: 'low_stock',
+            message: `Low stock: ${this.name} is running low (${this.availableQuantity} ${this.unit} left)`,
+            severity: 'medium',
+            date: now
+        });
+    }
+    
+    // Out of stock alert
+    if (this.availableQuantity <= 0) {
+        alerts.push({
+            type: 'out_of_stock',
+            message: `Out of stock: ${this.name} is out of stock`,
+            severity: 'high',
+            date: now
+        });
+    }
+    
+    // Expiry alert (30 days before expiry)
+    if (this.expiryDate) {
+        const daysToExpiry = Math.floor((this.expiryDate - now) / (1000 * 60 * 60 * 24));
+        if (daysToExpiry <= 30 && daysToExpiry > 0) {
+            alerts.push({
+                type: 'expiry',
+                message: `${this.name} expires in ${daysToExpiry} days`,
+                severity: daysToExpiry <= 7 ? 'high' : 'medium',
+                date: now
+            });
+        }
+    }
+    
+    // Equipment maintenance alert
+    if (this.isEquipment && this.nextMaintenanceDate) {
+        const daysToMaintenance = Math.floor((this.nextMaintenanceDate - now) / (1000 * 60 * 60 * 24));
+        if (daysToMaintenance <= 14 && daysToMaintenance > 0) {
+            alerts.push({
+                type: 'maintenance',
+                message: `${this.name} maintenance due in ${daysToMaintenance} days`,
+                severity: daysToMaintenance <= 3 ? 'high' : 'medium',
+                date: now
+            });
+        }
+    }
+    
+    this.alerts = alerts;
+};
+
+// Method to use resource
+resourceSchema.methods.useResource = async function(usageData) {
+    if (usageData.quantity > this.availableQuantity) {
+        throw new Error(`Insufficient quantity. Available: ${this.availableQuantity} ${this.unit}`);
+    }
+    
+    this.usedQuantity += usageData.quantity;
+    this.availableQuantity -= usageData.quantity;
+    
+    // Add to usage history
+    this.usageHistory.push({
+        date: new Date(),
+        ...usageData
+    });
+    
+    // Update monthly usage
+    const month = new Date().toISOString().slice(0, 7); // YYYY-MM
+    const monthlyUsage = this.monthlyUsage.find(m => m.month === month);
+    if (monthlyUsage) {
+        monthlyUsage.quantity += usageData.quantity;
+        monthlyUsage.cost += (usageData.quantity * this.costPerUnit) || 0;
+    } else {
+        this.monthlyUsage.push({
+            month,
+            quantity: usageData.quantity,
+            cost: (usageData.quantity * this.costPerUnit) || 0
+        });
+    }
+    
+    await this.save();
+    return this;
+};
+
+// Method to add stock
+resourceSchema.methods.addStock = async function(quantity, costPerUnit, vendor) {
+    this.totalQuantity += quantity;
+    this.availableQuantity += quantity;
+    
+    if (costPerUnit) {
+        this.costPerUnit = costPerUnit;
+        this.totalCost = this.totalQuantity * costPerUnit;
+    }
+    
+    if (vendor) {
+        this.vendor = vendor;
+    }
+    
+    await this.save();
+    return this;
+};
+
+// Static method to get low stock items
+resourceSchema.statics.getLowStockItems = function(farmerId) {
+    return this.find({
+        farmer: farmerId,
+        availableQuantity: { $lte: { $ifNull: ['$minimumThreshold', 0] } },
+        availableQuantity: { $gt: 0 },
+        isArchived: false
+    });
+};
+
+// Static method to get expired items
+resourceSchema.statics.getExpiredItems = function(farmerId) {
+    const now = new Date();
+    return this.find({
+        farmer: farmerId,
+        expiryDate: { $lt: now },
+        availableQuantity: { $gt: 0 },
+        isArchived: false
+    });
+};
+
+// Static method to get maintenance due items
+resourceSchema.statics.getMaintenanceDueItems = function(farmerId) {
+    const now = new Date();
+    const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    
+    return this.find({
+        farmer: farmerId,
+        isEquipment: true,
+        nextMaintenanceDate: { $lte: nextWeek },
+        equipmentStatus: 'active',
+        isArchived: false
+    });
+};
+
+module.exports = mongoose.model('Resource', resourceSchema);
+-e 
+===== FILE: ./models/Financial.js =====
+
+const mongoose = require('mongoose');
+
+// Transaction Types
+const TRANSACTION_TYPES = ['income', 'expense', 'loan', 'investment', 'subsidy', 'repayment'];
+
+// Expense Categories
+const EXPENSE_CATEGORIES = [
+    'seeds', 'fertilizers', 'pesticides', 'labor', 'equipment_fuel', 
+    'equipment_repair', 'irrigation', 'electricity', 'transport', 
+    'rent', 'storage', 'packaging', 'other'
+];
+
+// Income Sources
+const INCOME_SOURCES = [
+    'crop_sale', 'livestock_sale', 'dairy', 'poultry', 'government_subsidy',
+    'loan_disbursement', 'other'
+];
+
+// Payment Methods
+const PAYMENT_METHODS = ['cash', 'upi', 'bank_transfer', 'cheque', 'credit'];
+
+// Payment Status
+const PAYMENT_STATUS = ['pending', 'partial', 'paid', 'overdue', 'cancelled'];
+
+const financialTransactionSchema = new mongoose.Schema({
+    farmer: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    
+    // Transaction Information
+    type: {
+        type: String,
+        enum: TRANSACTION_TYPES,
+        required: true
+    },
+    category: {
+        type: String,
+        enum: EXPENSE_CATEGORIES,
+        required: function() { return this.type === 'expense'; }
+    },
+    source: {
+        type: String,
+        enum: INCOME_SOURCES,
+        required: function() { return this.type === 'income'; }
+    },
+    
+    // Financial Details
+    amount: {
+        type: Number,
+        required: true,
+        min: 0
+    },
+    taxAmount: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    totalAmount: {
+        type: Number,
+        required: true,
+        min: 0
+    },
+    
+    // Date Information
+    transactionDate: {
+        type: Date,
+        required: true,
+        default: Date.now
+    },
+    dueDate: Date,
+    paymentDate: Date,
+    
+    // Description
+    description: {
+        type: String,
+        required: true
+    },
+    notes: String,
+    
+    // Payment Information
+    paymentMethod: {
+        type: String,
+        enum: PAYMENT_METHODS,
+        default: 'cash'
+    },
+    paymentStatus: {
+        type: String,
+        enum: PAYMENT_STATUS,
+        default: 'pending'
+    },
+    paymentReference: String,
+    
+    // Buyer/Seller/Vendor Information
+    party: {
+        name: String,
+        type: {
+            type: String,
+            enum: ['buyer', 'seller', 'worker', 'vendor', 'bank', 'government', 'other']
+        },
+        contact: String,
+        gstin: String
+    },
+    
+    // Associations
+    crop: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Crop'
+    },
+    cropName: String,
+    cropVariety: String,
+    
+    activity: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'TimelineActivity'
+    },
+    activityTitle: String,
+    
+    resource: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Resource'
+    },
+    resourceName: String,
+    
+    worker: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Worker'
+    },
+    workerName: String,
+    
+    // Loan Specific Fields
+    loan: {
+        principal: Number,
+        interestRate: Number,
+        tenure: Number, // in months
+        lender: String,
+        loanType: String,
+        emiAmount: Number,
+        remainingBalance: Number,
+        nextEmiDate: Date
+    },
+    
+    // Subsidy Specific Fields
+    subsidy: {
+        schemeName: String,
+        schemeCode: String,
+        appliedDate: Date,
+        approvedDate: Date,
+        disbursedDate: Date,
+        applicationNumber: String,
+        status: String
+    },
+    
+    // Budget Information
+    budget: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Budget'
+    },
+    isPlanned: {
+        type: Boolean,
+        default: false
+    },
+    plannedAmount: Number,
+    variance: Number, // actual - planned
+    
+    // Attachments
+    attachments: [{
+        filename: String,
+        url: String,
+        type: String, // invoice, receipt, bill, other
+        uploadedAt: Date
+    }],
+    
+    // Tax & Compliance
+    gstAmount: Number,
+    tdsAmount: Number,
+    isTaxable: Boolean,
+    hsnCode: String,
+    
+    // Audit Trail
+    createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    updatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    
+    // Reconciliation
+    isReconciled: {
+        type: Boolean,
+        default: false
+    },
+    reconciledBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    reconciledAt: Date,
+    
+    // Tags & Metadata
+    tags: [String],
+    isRecurring: Boolean,
+    recurrencePattern: String,
+    
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+});
+
+// Budget Schema
+const budgetSchema = new mongoose.Schema({
+    farmer: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    
+    name: {
+        type: String,
+        required: true
+    },
+    description: String,
+    
+    // Budget Period
+    periodType: {
+        type: String,
+        enum: ['monthly', 'quarterly', 'seasonal', 'annual', 'custom'],
+        required: true
+    },
+    startDate: {
+        type: Date,
+        required: true
+    },
+    endDate: {
+        type: Date,
+        required: true
+    },
+    
+    // Budget Categories
+    categories: [{
+        category: {
+            type: String,
+            enum: EXPENSE_CATEGORIES
+        },
+        plannedAmount: {
+            type: Number,
+            required: true,
+            min: 0
+        },
+        actualAmount: {
+            type: Number,
+            default: 0,
+            min: 0
+        },
+        variance: {
+            type: Number,
+            default: 0
+        }
+    }],
+    
+    // Crop-wise Budget
+    cropBudgets: [{
+        crop: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Crop'
+        },
+        cropName: String,
+        plannedCost: Number,
+        actualCost: Number,
+        plannedRevenue: Number,
+        actualRevenue: Number
+    }],
+    
+    // Overall Budget
+    totalPlannedExpense: {
+        type: Number,
+        required: true,
+        min: 0
+    },
+    totalActualExpense: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    
+    totalPlannedRevenue: {
+        type: Number,
+        required: true,
+        min: 0
+    },
+    totalActualRevenue: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    
+    // Status
+    status: {
+        type: String,
+        enum: ['draft', 'active', 'completed', 'cancelled'],
+        default: 'draft'
+    },
+    
+    // Alerts
+    alerts: [{
+        type: {
+            type: String,
+            enum: ['overspending', 'underspending', 'revenue_shortfall', 'profit_target']
+        },
+        message: String,
+        severity: {
+            type: String,
+            enum: ['low', 'medium', 'high']
+        },
+        triggeredAt: Date,
+        resolved: Boolean
+    }],
+    
+    // Performance Metrics
+    variancePercentage: Number,
+    utilizationRate: Number,
+    roi: Number,
+    
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+});
+
+// Pre-save middleware for calculations
+financialTransactionSchema.pre('save', function(next) {
+    this.updatedAt = new Date();
+    
+    // Calculate total amount
+    if (!this.totalAmount) {
+        this.totalAmount = this.amount + (this.taxAmount || 0);
+    }
+    
+    // Calculate variance if planned amount exists
+    if (this.plannedAmount) {
+        this.variance = this.amount - this.plannedAmount;
+    }
+    
+    // Auto-update payment status based on dates
+    if (this.dueDate && this.paymentStatus === 'pending') {
+        const today = new Date();
+        if (today > this.dueDate) {
+            this.paymentStatus = 'overdue';
+        }
+    }
+    
+    next();
+});
+
+// Static methods for financial calculations
+financialTransactionSchema.statics.getProfitLoss = async function(farmerId, startDate, endDate) {
+    const matchQuery = {
+        farmer: farmerId,
+        transactionDate: { $gte: new Date(startDate), $lte: new Date(endDate) }
+    };
+    
+    const [income, expenses] = await Promise.all([
+        this.aggregate([
+            { $match: { ...matchQuery, type: 'income' } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ]),
+        this.aggregate([
+            { $match: { ...matchQuery, type: 'expense' } },
+            { $group: { _id: null, total: { $sum: '$amount' } } }
+        ])
+    ]);
+    
+    const totalIncome = income[0]?.total || 0;
+    const totalExpenses = expenses[0]?.total || 0;
+    const netProfit = totalIncome - totalExpenses;
+    
+    return {
+        totalIncome,
+        totalExpenses,
+        netProfit,
+        profitMargin: totalIncome > 0 ? (netProfit / totalIncome) * 100 : 0
+    };
+};
+
+financialTransactionSchema.statics.getCropWiseProfit = async function(farmerId, season) {
+    const transactions = await this.aggregate([
+        {
+            $match: {
+                farmer: mongoose.Types.ObjectId(farmerId),
+                crop: { $exists: true, $ne: null }
+            }
+        },
+        {
+            $group: {
+                _id: '$crop',
+                cropName: { $first: '$cropName' },
+                totalIncome: {
+                    $sum: {
+                        $cond: [{ $eq: ['$type', 'income'] }, '$amount', 0]
+                    }
+                },
+                totalExpense: {
+                    $sum: {
+                        $cond: [{ $eq: ['$type', 'expense'] }, '$amount', 0]
+                    }
+                }
+            }
+        },
+        {
+            $project: {
+                cropName: 1,
+                totalIncome: 1,
+                totalExpense: 1,
+                netProfit: { $subtract: ['$totalIncome', '$totalExpense'] },
+                profitMargin: {
+                    $cond: [
+                        { $gt: ['$totalIncome', 0] },
+                        { $multiply: [{ $divide: [{ $subtract: ['$totalIncome', '$totalExpense'] }, '$totalIncome'] }, 100] },
+                        0
+                    ]
+                }
+            }
+        },
+        { $sort: { netProfit: -1 } }
+    ]);
+    
+    return transactions;
+};
+
+financialTransactionSchema.statics.getPendingPayments = async function(farmerId) {
+    return this.find({
+        farmer: farmerId,
+        paymentStatus: { $in: ['pending', 'partial', 'overdue'] }
+    }).sort({ dueDate: 1 });
+};
+
+financialTransactionSchema.statics.getMonthlyTrends = async function(farmerId, year) {
+    const startDate = new Date(`${year}-01-01`);
+    const endDate = new Date(`${year}-12-31`);
+    
+    return this.aggregate([
+        {
+            $match: {
+                farmer: mongoose.Types.ObjectId(farmerId),
+                transactionDate: { $gte: startDate, $lte: endDate }
+            }
+        },
+        {
+            $group: {
+                _id: {
+                    year: { $year: '$transactionDate' },
+                    month: { $month: '$transactionDate' }
+                },
+                income: {
+                    $sum: { $cond: [{ $eq: ['$type', 'income'] }, '$amount', 0] }
+                },
+                expenses: {
+                    $sum: { $cond: [{ $eq: ['$type', 'expense'] }, '$amount', 0] }
+                },
+                count: { $sum: 1 }
+            }
+        },
+        {
+            $project: {
+                _id: 0,
+                year: '$_id.year',
+                month: '$_id.month',
+                income: 1,
+                expenses: 1,
+                profit: { $subtract: ['$income', '$expenses'] },
+                count: 1
+            }
+        },
+        { $sort: { year: 1, month: 1 } }
+    ]);
+};
+
+// Budget schema methods
+budgetSchema.methods.calculateVariances = function() {
+    this.totalActualExpense = this.categories.reduce((sum, cat) => sum + (cat.actualAmount || 0), 0);
+    this.totalActualRevenue = this.cropBudgets.reduce((sum, crop) => sum + (crop.actualRevenue || 0), 0);
+    
+    // Calculate variances
+    this.categories.forEach(category => {
+        category.variance = (category.actualAmount || 0) - category.plannedAmount;
+    });
+    
+    this.cropBudgets.forEach(crop => {
+        crop.variance = (crop.actualCost || 0) - crop.plannedCost;
+    });
+    
+    const expenseVariance = this.totalActualExpense - this.totalPlannedExpense;
+    const revenueVariance = this.totalActualRevenue - this.totalPlannedRevenue;
+    
+    this.variancePercentage = this.totalPlannedExpense > 0 
+        ? (expenseVariance / this.totalPlannedExpense) * 100 
+        : 0;
+    
+    this.utilizationRate = this.totalPlannedExpense > 0 
+        ? (this.totalActualExpense / this.totalPlannedExpense) * 100 
+        : 0;
+    
+    // Calculate ROI if there's revenue
+    if (this.totalActualExpense > 0 && this.totalActualRevenue > 0) {
+        this.roi = ((this.totalActualRevenue - this.totalActualExpense) / this.totalActualExpense) * 100;
+    }
+    
+    // Generate alerts
+    this.generateAlerts();
+};
+
+budgetSchema.methods.generateAlerts = function() {
+    this.alerts = [];
+    
+    // Overspending alert
+    if (this.totalActualExpense > this.totalPlannedExpense * 1.1) { // 10% over budget
+        this.alerts.push({
+            type: 'overspending',
+            message: `Overspending by ${((this.totalActualExpense - this.totalPlannedExpense) / this.totalPlannedExpense * 100).toFixed(1)}%`,
+            severity: 'high',
+            triggeredAt: new Date()
+        });
+    }
+    
+    // Revenue shortfall alert
+    if (this.totalActualRevenue < this.totalPlannedRevenue * 0.9) { // 10% under revenue
+        this.alerts.push({
+            type: 'revenue_shortfall',
+            message: `Revenue shortfall by ${((this.totalPlannedRevenue - this.totalActualRevenue) / this.totalPlannedRevenue * 100).toFixed(1)}%`,
+            severity: 'medium',
+            triggeredAt: new Date()
+        });
+    }
+    
+    // Check individual category overspending
+    this.categories.forEach(category => {
+        if (category.actualAmount > category.plannedAmount * 1.2) { // 20% over category budget
+            this.alerts.push({
+                type: 'overspending',
+                message: `${category.category} overspending by ${((category.actualAmount - category.plannedAmount) / category.plannedAmount * 100).toFixed(1)}%`,
+                severity: category.actualAmount > category.plannedAmount * 1.5 ? 'high' : 'medium',
+                triggeredAt: new Date()
+            });
+        }
+    });
+};
+
+const FinancialTransaction = mongoose.model('FinancialTransaction', financialTransactionSchema);
+const Budget = mongoose.model('Budget', budgetSchema);
+
+module.exports = { FinancialTransaction, Budget };
+-e 
+===== FILE: ./models/CropHealth.js =====
+
+const mongoose = require('mongoose');
+
+// Growth Stages
+const GROWTH_STAGES = [
+    'sowing', 'germination', 'seedling', 'vegetative', 
+    'flowering', 'fruiting', 'ripening', 'harvesting', 'dormant'
+];
+
+// Health Status
+const HEALTH_STATUS = ['healthy', 'warning', 'critical', 'recovering'];
+
+// Issue Types
+const ISSUE_TYPES = ['disease', 'pest', 'nutrient_deficiency', 'weed', 'weather_damage', 'other'];
+
+// Severity Levels
+const SEVERITY_LEVELS = ['low', 'medium', 'high', 'critical'];
+
+// Detection Methods
+const DETECTION_METHODS = ['manual', 'ai_image', 'sensor', 'weather_alert', 'supervisor', 'worker'];
+
+const cropHealthSchema = new mongoose.Schema({
+    farmer: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+    
+    // Crop Information
+    crop: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Crop',
+        required: true
+    },
+    cropName: {
+        type: String,
+        required: true
+    },
+    cropVariety: String,
+    
+    field: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Field'
+    },
+    fieldName: String,
+    area: Number, // in acres
+    
+    // Current Health Status
+    growthStage: {
+        type: String,
+        enum: GROWTH_STAGES,
+        required: true
+    },
+    healthStatus: {
+        type: String,
+        enum: HEALTH_STATUS,
+        default: 'healthy'
+    },
+    healthScore: {
+        type: Number,
+        min: 0,
+        max: 100,
+        default: 100
+    },
+    lastChecked: {
+        type: Date,
+        default: Date.now
+    },
+    
+    // Issues & Problems
+    issues: [{
+        type: {
+            type: String,
+            enum: ISSUE_TYPES,
+            required: true
+        },
+        name: {
+            type: String,
+            required: true
+        },
+        scientificName: String,
+        
+        // Symptoms
+        symptoms: [String],
+        affectedArea: {
+            type: Number,
+            min: 0,
+            max: 100,
+            default: 0
+        }, // percentage
+        severity: {
+            type: String,
+            enum: SEVERITY_LEVELS,
+            required: true
+        },
+        
+        // Detection
+        detectedDate: {
+            type: Date,
+            default: Date.now
+        },
+        detectedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        detectionMethod: {
+            type: String,
+            enum: DETECTION_METHODS
+        },
+        
+        // Images for diagnosis
+        images: [{
+            url: String,
+            filename: String,
+            description: String,
+            uploadedAt: Date,
+            aiConfidence: Number // for AI detection
+        }],
+        
+        // AI Analysis (if applicable)
+        aiAnalysis: {
+            diseaseName: String,
+            confidence: Number,
+            recommendations: [String],
+            modelVersion: String
+        },
+        
+        // Treatment Information
+        treatment: {
+            recommended: {
+                pesticides: [{
+                    name: String,
+                    activeIngredient: String,
+                    dosage: String, // per acre/liter
+                    applicationMethod: String,
+                    frequency: String,
+                    safetyPeriod: Number, // days
+                    costPerAcre: Number
+                }],
+                organicAlternatives: [{
+                    name: String,
+                    composition: String,
+                    dosage: String,
+                    applicationMethod: String
+                }],
+                culturalPractices: [String],
+                preventionTips: [String]
+            },
+            
+            applied: [{
+                productName: String,
+                productType: String, // chemical/organic
+                dosage: String,
+                applicationDate: Date,
+                appliedBy: {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: 'User'
+                },
+                cost: Number,
+                effectiveness: {
+                    type: String,
+                    enum: ['excellent', 'good', 'average', 'poor', 'not_effective']
+                },
+                notes: String
+            }],
+            
+            nextTreatmentDate: Date,
+            estimatedRecoveryDays: Number
+        },
+        
+        // Supervisor Input
+        supervisorNotes: [{
+            supervisor: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'User'
+            },
+            supervisorName: String,
+            note: String,
+            date: Date,
+            validated: Boolean
+        }],
+        
+        // Status Tracking
+        status: {
+            type: String,
+            enum: ['detected', 'diagnosed', 'treatment_planned', 'treatment_applied', 'monitoring', 'resolved', 'recurred'],
+            default: 'detected'
+        },
+        
+        resolvedDate: Date,
+        recurrenceCount: {
+            type: Number,
+            default: 0
+        },
+        
+        // Impact Assessment
+        yieldImpact: {
+            estimated: Number, // percentage
+            actual: Number
+        },
+        costImpact: Number,
+        
+        createdAt: {
+            type: Date,
+            default: Date.now
+        },
+        updatedAt: Date
+    }],
+    
+    // Nutrient Status
+    nutrientStatus: {
+        nitrogen: {
+            level: {
+                type: String,
+                enum: ['deficient', 'low', 'adequate', 'high', 'excess'],
+                default: 'adequate'
+            },
+            lastTested: Date,
+            recommendedFertilizer: String,
+            dosage: String
+        },
+        phosphorus: {
+            level: {
+                type: String,
+                enum: ['deficient', 'low', 'adequate', 'high', 'excess'],
+                default: 'adequate'
+            },
+            lastTested: Date,
+            recommendedFertilizer: String,
+            dosage: String
+        },
+        potassium: {
+            level: {
+                type: String,
+                enum: ['deficient', 'low', 'adequate', 'high', 'excess'],
+                default: 'adequate'
+            },
+            lastTested: Date,
+            recommendedFertilizer: String,
+            dosage: String
+        },
+        micronutrients: {
+            iron: String,
+            zinc: String,
+            manganese: String,
+            copper: String,
+            boron: String
+        }
+    },
+    
+    // Environmental Factors
+    environmentalFactors: {
+        soilPh: Number,
+        soilMoisture: Number, // percentage
+        temperature: Number,
+        humidity: Number,
+        rainfall: Number, // last 7 days
+        windSpeed: Number,
+        recordedAt: Date
+    },
+    
+    // Preventive Alerts
+    alerts: [{
+        type: {
+            type: String,
+            enum: ['weather', 'pest_outbreak', 'disease_risk', 'nutrient_deficiency', 'irrigation', 'other']
+        },
+        message: String,
+        severity: {
+            type: String,
+            enum: ['info', 'warning', 'alert', 'critical'],
+            default: 'warning'
+        },
+        source: String, // weather_api, manual, sensor, community
+        validFrom: Date,
+        validTo: Date,
+        affectedStage: [String],
+        preventiveMeasures: [String],
+        triggeredAt: Date,
+        acknowledged: {
+            type: Boolean,
+            default: false
+        },
+        acknowledgedAt: Date
+    }],
+    
+    // Growth Monitoring
+    growthMetrics: [{
+        date: Date,
+        height: Number, // cm
+        canopyCover: Number, // percentage
+        leafCount: Number,
+        floweringPercentage: Number,
+        fruitCount: Number,
+        notes: String,
+        images: [String]
+    }],
+    
+    // Health History
+    healthHistory: [{
+        date: Date,
+        healthScore: Number,
+        issuesCount: Number,
+        treatmentCount: Number,
+        notes: String
+    }],
+    
+    // Community Insights (anonymized)
+    communityInsights: {
+        commonIssues: [String],
+        effectiveTreatments: [{
+            issue: String,
+            treatment: String,
+            effectiveness: String,
+            usageCount: Number
+        }],
+        updatedAt: Date
+    },
+    
+    // Predictive Analytics
+    predictions: {
+        diseaseRisk: {
+            next7Days: Number, // percentage
+            riskFactors: [String],
+            recommendedPrevention: [String]
+        },
+        pestRisk: {
+            next7Days: Number,
+            riskFactors: [String],
+            recommendedPrevention: [String]
+        },
+        yieldPrediction: {
+            estimated: Number, // kg per acre
+            confidence: Number,
+            factors: [String]
+        },
+        generatedAt: Date
+    },
+    
+    // Audit Trail
+    lastUpdatedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+    
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+});
+
+// Indexes
+cropHealthSchema.index({ farmer: 1, crop: 1 });
+cropHealthSchema.index({ farmer: 1, healthStatus: 1 });
+cropHealthSchema.index({ farmer: 1, 'issues.status': 1 });
+cropHealthSchema.index({ farmer: 1, 'alerts.acknowledged': 1 });
+cropHealthSchema.index({ 'issues.detectedDate': -1 });
+
+// Pre-save middleware
+cropHealthSchema.pre('save', function(next) {
+    this.updatedAt = new Date();
+    
+    // Auto-calculate health score based on issues
+    if (this.issues && this.issues.length > 0) {
+        let score = 100;
+        
+        this.issues.forEach(issue => {
+            if (issue.status !== 'resolved') {
+                const severityScores = {
+                    low: 10,
+                    medium: 25,
+                    high: 50,
+                    critical: 75
+                };
+                
+                score -= (severityScores[issue.severity] || 0) * (issue.affectedArea / 100);
+            }
+        });
+        
+        this.healthScore = Math.max(0, Math.round(score));
+        
+        // Update health status based on score
+        if (this.healthScore >= 80) {
+            this.healthStatus = 'healthy';
+        } else if (this.healthScore >= 50) {
+            this.healthStatus = 'warning';
+        } else {
+            this.healthStatus = 'critical';
+        }
+    }
+    
+    next();
+});
+
+// Methods
+cropHealthSchema.methods.addIssue = function(issueData) {
+    this.issues.push({
+        ...issueData,
+        detectedDate: new Date(),
+        status: 'detected'
+    });
+    
+    this.lastChecked = new Date();
+    return this.save();
+};
+
+cropHealthSchema.methods.updateTreatment = function(issueId, treatmentData) {
+    const issue = this.issues.id(issueId);
+    if (issue) {
+        issue.treatment.applied.push(treatmentData);
+        issue.status = 'treatment_applied';
+        issue.updatedAt = new Date();
+        
+        // Schedule next treatment if needed
+        if (treatmentData.nextTreatmentDate) {
+            issue.treatment.nextTreatmentDate = treatmentData.nextTreatmentDate;
+        }
+    }
+    return this.save();
+};
+
+cropHealthSchema.methods.resolveIssue = function(issueId, notes) {
+    const issue = this.issues.id(issueId);
+    if (issue) {
+        issue.status = 'resolved';
+        issue.resolvedDate = new Date();
+        issue.updatedAt = new Date();
+        
+        if (notes) {
+            issue.supervisorNotes.push({
+                note: notes,
+                date: new Date()
+            });
+        }
+    }
+    return this.save();
+};
+
+cropHealthSchema.methods.addGrowthMetric = function(metricData) {
+    this.growthMetrics.push({
+        ...metricData,
+        date: new Date()
+    });
+    return this.save();
+};
+
+// Static methods
+cropHealthSchema.statics.getCropsNeedingAttention = function(farmerId) {
+    return this.find({
+        farmer: farmerId,
+        $or: [
+            { healthStatus: { $in: ['warning', 'critical'] } },
+            { 'issues.status': { $in: ['detected', 'diagnosed'] } },
+            { 'alerts.acknowledged': false }
+        ]
+    })
+    .populate('crop', 'name variety area sowingDate')
+    .sort({ healthScore: 1 });
+};
+
+cropHealthSchema.statics.getPreventiveAlerts = function(farmerId) {
+    const now = new Date();
+    const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    
+    return this.find({
+        farmer: farmerId,
+        'alerts.validFrom': { $lte: sevenDaysLater },
+        'alerts.validTo': { $gte: now },
+        'alerts.acknowledged': false
+    })
+    .select('cropName fieldName alerts')
+    .lean();
+};
+
+module.exports = mongoose.model('CropHealth', cropHealthSchema);
+-e 
+===== FILE: ./models/DiseaseDatabase.js =====
+
+const mongoose = require('mongoose');
+
+const diseaseSchema = new mongoose.Schema({
+    // Basic Information
+    name: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    scientificName: String,
+    localNames: [String],
+    
+    // Categorization
+    type: {
+        type: String,
+        enum: ['fungal', 'bacterial', 'viral', 'pest', 'nematode', 'physiological'],
+        required: true
+    },
+    category: {
+        type: String,
+        enum: ['disease', 'pest', 'weed', 'deficiency', 'disorder'],
+        required: true
+    },
+    
+    // Affected Crops
+    crops: [{
+        crop: {
+            type: String,
+            required: true
+        },
+        varieties: [String],
+        susceptibleStages: [String],
+        prevalence: {
+            type: String,
+            enum: ['rare', 'occasional', 'common', 'widespread']
+        }
+    }],
+    
+    // Symptoms
+    symptoms: {
+        leaves: [String],
+        stems: [String],
+        roots: [String],
+        fruits: [String],
+        general: [String],
+        progression: String,
+        images: [{
+            url: String,
+            description: String,
+            stage: String
+        }]
+    },
+    
+    // Causes & Conditions
+    causes: [String],
+    favorableConditions: {
+        temperature: {
+            min: Number,
+            max: Number,
+            optimal: Number
+        },
+        humidity: {
+            min: Number,
+            max: Number
+        },
+        rainfall: String,
+        soilConditions: [String],
+        season: [String]
+    },
+    
+    // Spread & Transmission
+    transmission: {
+        method: [String], // wind, water, soil, seed, insect
+        vector: [String], // insect names if applicable
+        spreadRate: {
+            type: String,
+            enum: ['slow', 'moderate', 'rapid', 'explosive']
+        }
+    },
+    
+    // Diagnosis
+    diagnosisTips: [String],
+    similarIssues: [{
+        name: String,
+        differentiatingFactors: String
+    }],
+    labTests: [String],
+    
+    // Treatment - Chemical
+    chemicalTreatments: [{
+        productName: String,
+        activeIngredient: String,
+        brand: String,
+        formulation: String, // WP, SC, EC, etc.
+        dosage: {
+            perAcre: String,
+            perLiter: String
+        },
+        applicationMethod: {
+            type: String,
+            enum: ['spray', 'drench', 'soil_application', 'seed_treatment']
+        },
+        frequency: String,
+        safetyPeriod: Number, // days
+        precautions: [String],
+        effectiveness: {
+            type: String,
+            enum: ['excellent', 'good', 'average', 'poor']
+        },
+        costRange: {
+            low: Number,
+            high: Number
+        }
+    }],
+    
+    // Treatment - Organic/Biological
+    organicTreatments: [{
+        name: String,
+        type: {
+            type: String,
+            enum: ['bio_pesticide', 'botanical', 'microbial', 'cultural', 'physical']
+        },
+        composition: String,
+        dosage: String,
+        applicationMethod: String,
+        frequency: String,
+        preparationMethod: String,
+        effectiveness: String,
+        cost: String
+    }],
+    
+    // Cultural Control Methods
+    culturalControls: [String],
+    
+    // Prevention
+    preventiveMeasures: [String],
+    resistantVarieties: [String],
+    
+    // Impact
+    impact: {
+        yieldLoss: {
+            min: Number, // percentage
+            max: Number
+        },
+        qualityImpact: String,
+        economicImpact: String
+    },
+    
+    // Regulatory Information
+    bannedInCountries: [String],
+    restrictedUse: Boolean,
+    mrlLimits: [{
+        country: String,
+        crop: String,
+        limit: String // Maximum Residue Limit
+    }],
+    
+    // Scientific References
+    references: [{
+        title: String,
+        author: String,
+        year: Number,
+        url: String
+    }],
+    
+    // Metadata
+    region: [String], // Where this disease is prevalent
+    seasonality: [String],
+    riskLevel: {
+        type: String,
+        enum: ['low', 'medium', 'high', 'severe']
+    },
+    
+    // AI/ML Data
+    aiModel: {
+        modelId: String,
+        confidenceThreshold: Number,
+        lastUpdated: Date,
+        accuracy: Number
+    },
+    
+    // Audit
+    verifiedByExperts: Boolean,
+    lastUpdated: Date,
+    source: String,
+    
+    createdAt: {
+        type: Date,
+        default: Date.now
+    },
+    updatedAt: {
+        type: Date,
+        default: Date.now
+    }
+});
+
+// Indexes for fast search
+diseaseSchema.index({ name: 'text', scientificName: 'text', localNames: 'text' });
+diseaseSchema.index({ 'crops.crop': 1 });
+diseaseSchema.index({ type: 1, category: 1 });
+diseaseSchema.index({ riskLevel: 1 });
+
+// Pre-save middleware
+diseaseSchema.pre('save', function(next) {
+    this.updatedAt = new Date();
+    next();
+});
+
+// Method to get treatments by crop
+diseaseSchema.statics.getTreatmentsForCrop = function(cropName, issueType) {
+    return this.find({
+        'crops.crop': cropName,
+        category: issueType
+    })
+    .select('name type chemicalTreatments organicTreatments preventiveMeasures')
+    .lean();
+};
+
+// Method to search by symptoms
+diseaseSchema.statics.searchBySymptoms = function(symptoms, cropName) {
+    const symptomRegex = symptoms.map(s => new RegExp(s, 'i'));
+    
+    return this.find({
+        'crops.crop': cropName,
+        $or: [
+            { 'symptoms.leaves': { $in: symptomRegex } },
+            { 'symptoms.stems': { $in: symptomRegex } },
+            { 'symptoms.roots': { $in: symptomRegex } },
+            { 'symptoms.fruits': { $in: symptomRegex } },
+            { 'symptoms.general': { $in: symptomRegex } }
+        ]
+    })
+    .sort({ riskLevel: -1 })
+    .limit(10)
+    .lean();
+};
+
+module.exports = mongoose.model('Disease', diseaseSchema);
+-e 
+===== FILE: ./routes/farmer.js =====
+
+const express = require('express');
+const router = express.Router();
+const { Farmer, Reminder, Warning, Crop, Activity, Resource, Expense, Income, Worker } = require('../models');
+
+// Middleware for authentication
+const auth = require('../middleware/auth');
+
+// Worker List
+router.get('/workers', auth, async (req, res) => {
+    try {
+        const workers = await Worker.find({ farmer: req.user.id });
+        res.json(workers);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 1. REMINDERS
+router.post('/reminders', auth, async (req, res) => {
+    try {
+        const reminder = new Reminder({
+            ...req.body,
+            farmer: req.user.id
+        });
+        await reminder.save();
+        res.status(201).json(reminder);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.get('/reminders', auth, async (req, res) => {
+    try {
+        const reminders = await Reminder.find({ farmer: req.user.id })
+            .sort({ date: 1 });
+        res.json(reminders);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 2. WARNINGS
+router.get('/warnings', auth, async (req, res) => {
+    try {
+        // Get farmer's location and crops
+        const farmer = await Farmer.findById(req.user.id);
+        
+        // Simulated weather warnings
+        const warnings = [
+            {
+                type: 'weather',
+                severity: 'high',
+                message: 'Heavy rainfall expected in your area tomorrow',
+                date: new Date()
+            },
+            {
+                type: 'pest',
+                severity: 'medium',
+                message: 'Pest alert: Increased locust activity in your region',
+                date: new Date()
+            }
+        ];
+        
+        res.json(warnings);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 3. CROP PLANNER
+router.post('/crops', auth, async (req, res) => {
+    try {
+        const crop = new Crop({
+            ...req.body,
+            farmer: req.user.id
+        });
+        await crop.save();
+        res.status(201).json(crop);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.get('/crops/plan', auth, async (req, res) => {
+    try {
+        const { season, landType } = req.query;
+        
+        // Crop recommendations based on season and land type
+        const recommendations = {
+            rabi: ['Wheat', 'Barley', 'Mustard', 'Gram'],
+            kharif: ['Rice', 'Maize', 'Cotton', 'Soybean'],
+            zaid: ['Watermelon', 'Cucumber', 'Bitter gourd']
+        };
+        
+        const crops = recommendations[season] || ['Wheat', 'Rice', 'Maize'];
+        res.json({ recommendations: crops });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 4. ACTIVITY TIMELINE
+router.get('/activities', auth, async (req, res) => {
+    try {
+        const { filter, startDate, endDate } = req.query;
+        
+        let query = { farmer: req.user.id };
+        
+        if (startDate && endDate) {
+            query.date = { $gte: new Date(startDate), $lte: new Date(endDate) };
+        }
+        
+        if (filter) {
+            query.type = filter;
+        }
+        
+        const activities = await Activity.find(query)
+            .sort({ date: -1 })
+            .populate('crop', 'name');
+            
+        res.json(activities);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 5. RESOURCE MANAGEMENT
+router.get('/resources', auth, async (req, res) => {
+    try {
+        const resources = await Resource.find({ farmer: req.user.id });
+        
+        // Check for low inventory
+        const alerts = resources.filter(r => r.quantity < r.threshold);
+        
+        res.json({ resources, alerts });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 6. FINANCIAL MANAGEMENT
+router.get('/financial', auth, async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        
+        // Get expenses and income
+        const expenses = await Expense.find({
+            farmer: req.user.id,
+            date: { $gte: new Date(startDate), $lte: new Date(endDate) }
+        });
+        
+        const income = await Income.find({
+            farmer: req.user.id,
+            date: { $gte: new Date(startDate), $lte: new Date(endDate) }
+        });
+        
+        const totalExpense = expenses.reduce((sum, exp) => sum + exp.amount, 0);
+        const totalIncome = income.reduce((sum, inc) => sum + inc.amount, 0);
+        const profit = totalIncome - totalExpense;
+        
+        res.json({
+            expenses,
+            income,
+            summary: { totalExpense, totalIncome, profit }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 7. CROP DISEASE DATABASE
+router.get('/diseases', auth, async (req, res) => {
+    try {
+        const { cropName, symptom } = req.query;
+        
+        // Disease database (in production, this would be in MongoDB)
+        const diseases = [
+            {
+                name: 'Blast Disease',
+                crop: 'Rice',
+                symptoms: ['Spindle-shaped spots on leaves', 'Gray centers with brown margins'],
+                treatment: 'Use resistant varieties, apply Tricyclazole',
+                prevention: 'Avoid excessive nitrogen, ensure proper drainage'
+            },
+            {
+                name: 'Powdery Mildew',
+                crop: 'Wheat',
+                symptoms: ['White powdery growth on leaves', 'Yellowing of leaves'],
+                treatment: 'Apply sulfur-based fungicides',
+                prevention: 'Maintain proper spacing, avoid overhead irrigation'
+            }
+        ];
+        
+        let filteredDiseases = diseases;
+        if (cropName) {
+            filteredDiseases = diseases.filter(d => 
+                d.crop.toLowerCase().includes(cropName.toLowerCase())
+            );
+        }
+        
+        res.json(filteredDiseases);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 8. REPORTS & ANALYTICS
+router.get('/reports', auth, async (req, res) => {
+    try {
+        const { reportType, year } = req.query;
+        
+        // Generate different types of reports
+        const reports = {
+            yield: await generateYieldReport(req.user.id, year),
+            financial: await generateFinancialReport(req.user.id, year),
+            resource: await generateResourceReport(req.user.id, year)
+        };
+        
+        res.json(reports[reportType] || reports);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 9. WORKER MANAGEMENT
+router.post('/workers', auth, async (req, res) => {
+    try {
+        const worker = new Worker({
+            ...req.body,
+            farmer: req.user.id
+        });
+        await worker.save();
+        res.status(201).json(worker);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 10. PESTICIDE GUIDANCE
+router.get('/pesticide-guidance', auth, async (req, res) => {
+    try {
+        const { crop, pest } = req.query;
+        
+        const guidance = [
+            {
+                crop: 'Rice',
+                pest: 'Stem Borer',
+                pesticide: 'Chlorantraniliprole',
+                dosage: '100 ml per acre',
+                timing: 'Early infestation stage',
+                safety: 'Use gloves and mask, avoid application during windy conditions'
+            }
+        ];
+        
+        res.json(guidance);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 11. SELLING PROCESS
+router.post('/sales', auth, async (req, res) => {
+    try {
+        const sale = new Sale({
+            ...req.body,
+            farmer: req.user.id,
+            status: 'pending'
+        });
+        await sale.save();
+        res.status(201).json(sale);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 12. WEED MANAGEMENT
+router.get('/weed-management', auth, async (req, res) => {
+    try {
+        const { crop } = req.query;
+        
+        const weedData = [
+            {
+                weed: 'Barnyard Grass',
+                cropsAffected: ['Rice', 'Maize'],
+                identification: 'Stout stem, hairless leaves with white midvein',
+                control: 'Pre-emergence: Butachlor, Post-emergence: Fenoxaprop',
+                manual: 'Hand weeding before flowering'
+            }
+        ];
+        
+        res.json(weedData);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+module.exports = router;
+-e 
+===== FILE: ./routes/auth.js =====
+
+const express = require('express');
+const router = express.Router();
+router.post('/login', (req, res) => res.json({ token: 'mock_token' }));
+module.exports = router;-e 
+===== FILE: ./routes/supervisor.js =====
+
+const express = require('express');
+const router = express.Router();
+router.get('/', (req, res) => res.json({ message: 'Supervisor route' }));
+module.exports = router;-e 
+===== FILE: ./routes/worker.js =====
+
+const express = require('express');
+const router = express.Router();
+router.get('/', (req, res) => res.json({ message: 'Worker route' }));
+module.exports = router;-e 
+===== FILE: ./routes/crop.js =====
+
+const express = require('express');
+const router = express.Router();
+const { Crop, Activity, CropPlan, TimelineEvent } = require('../models');
+const auth = require('../middleware/auth');
+
+// Get all crops for a farmer
+router.get('/', auth, async (req, res) => {
+    try {
+        const crops = await Crop.find({ farmer: req.user.id })
+            .sort({ sowingDate: 1 })
+            .populate('plan');
+        res.json(crops);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create new crop plan
+router.post('/', auth, async (req, res) => {
+    try {
+        const {
+            name,
+            variety,
+            season,
+            landType,
+            area,
+            sowingDate,
+            expectedHarvestDate,
+            soilType,
+            waterSource,
+            planDetails
+        } = req.body;
+
+        // Create crop
+        const crop = new Crop({
+            farmer: req.user.id,
+            name,
+            variety,
+            season,
+            landType,
+            area: parseFloat(area),
+            sowingDate: new Date(sowingDate),
+            expectedHarvestDate: new Date(expectedHarvestDate),
+            soilType,
+            waterSource,
+            status: 'planned'
+        });
+
+        await crop.save();
+
+        // Create crop plan
+        if (planDetails) {
+            const cropPlan = new CropPlan({
+                crop: crop._id,
+                seedRequired: planDetails.seedRequired,
+                fertilizerRequired: planDetails.fertilizerRequired,
+                waterRequirement: planDetails.waterRequirement,
+                expectedYield: planDetails.expectedYield,
+                duration: planDetails.duration,
+                totalCost: planDetails.totalCost,
+                operations: planDetails.operations || []
+            });
+            await cropPlan.save();
+
+            // Link plan to crop
+            crop.plan = cropPlan._id;
+            await crop.save();
+
+            // Generate timeline events
+            await generateTimelineEvents(crop, cropPlan, req.user.id);
+        }
+
+        res.status(201).json({ crop, message: 'Crop plan created successfully' });
+    } catch (error) {
+        console.error('Error creating crop:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Generate timeline events from crop plan
+const generateTimelineEvents = async (crop, cropPlan, farmerId) => {
+    try {
+        const events = [];
+        const sowingDate = new Date(crop.sowingDate);
+        
+        // Add sowing event
+        events.push({
+            farmer: farmerId,
+            crop: crop._id,
+            title: `Sowing: ${crop.name} (${crop.variety || 'Unknown Variety'})`,
+            description: `Start sowing ${crop.name} in ${crop.area} acres`,
+            type: 'sowing',
+            date: sowingDate,
+            status: 'upcoming'
+        });
+
+        // Add operation events from plan
+        if (cropPlan.operations && cropPlan.operations.length > 0) {
+            cropPlan.operations.forEach((operation, index) => {
+                const eventDate = new Date(sowingDate);
+                // Handle daysAfterSowing carefully
+                const days = operation.daysAfterSowing !== undefined ? operation.daysAfterSowing : (index + 1) * 15;
+                eventDate.setDate(eventDate.getDate() + days);
+                
+                events.push({
+                    farmer: farmerId,
+                    crop: crop._id,
+                    title: `${operation.name} for ${crop.name}`,
+                    description: operation.description || `Perform ${operation.name} operation`,
+                    type: operation.type || 'operation',
+                    date: eventDate,
+                    status: 'upcoming'
+                });
+            });
+        }
+
+        // Add fertilizer application events (every 30 days) - supplementary
+        const daysToHarvest = Math.floor((new Date(crop.expectedHarvestDate) - sowingDate) / (1000 * 60 * 60 * 24));
+        const fertilizerApplications = Math.floor(daysToHarvest / 30);
+        
+        // Check if fertilizer events already exist in operations to avoid duplicates? 
+        // For now, let's assume operations are primary, but this loop adds generic recurring events.
+        // To avoid clutter, I'll only add if explicit operations are sparse? 
+        // No, the requirement says "Generate timeline events", and the code provided has this logic.
+        // I will stick to the provided logic but maybe check if "Fertilizer" is already in operations.
+        // Actually, let's stick to the user's code to be safe, assuming they want these reminders.
+        
+        for (let i = 1; i <= fertilizerApplications; i++) {
+            const eventDate = new Date(sowingDate);
+            eventDate.setDate(eventDate.getDate() + i * 30);
+            
+            // Only add if not duplicate date/type? simple check
+            events.push({
+                farmer: farmerId,
+                crop: crop._id,
+                title: `Fertilizer Application - ${crop.name}`,
+                description: `Apply fertilizer for ${crop.name} (${i}/${fertilizerApplications})`,
+                type: 'fertilizer',
+                date: eventDate,
+                status: 'upcoming'
+            });
+        }
+
+        // Add irrigation events (every 7 days)
+        const irrigationEvents = Math.floor(daysToHarvest / 7);
+        for (let i = 1; i <= irrigationEvents; i++) {
+            const eventDate = new Date(sowingDate);
+            eventDate.setDate(eventDate.getDate() + i * 7);
+            
+            events.push({
+                farmer: farmerId,
+                crop: crop._id,
+                title: `Irrigation - ${crop.name}`,
+                description: `Water the ${crop.name} crop`,
+                type: 'irrigation',
+                date: eventDate,
+                status: 'upcoming'
+            });
+        }
+
+        // Add pest control events (every 21 days)
+        const pestControlEvents = Math.floor(daysToHarvest / 21);
+        for (let i = 1; i <= pestControlEvents; i++) {
+            const eventDate = new Date(sowingDate);
+            eventDate.setDate(eventDate.getDate() + i * 21);
+            
+            events.push({
+                farmer: farmerId,
+                crop: crop._id,
+                title: `Pest Control - ${crop.name}`,
+                description: `Check and apply pest control measures`,
+                type: 'pest-control',
+                date: eventDate,
+                status: 'upcoming'
+            });
+        }
+
+        // Add harvesting event
+        events.push({
+            farmer: farmerId,
+            crop: crop._id,
+            title: `Harvesting: ${crop.name}`,
+            description: `Harvest ${crop.name} from ${crop.area} acres`,
+            type: 'harvesting',
+            date: new Date(crop.expectedHarvestDate),
+            status: 'upcoming'
+        });
+
+        // Save all events to database
+        await TimelineEvent.insertMany(events);
+
+        console.log(`Generated ${events.length} timeline events for crop: ${crop.name}`);
+    } catch (error) {
+        console.error('Error generating timeline events:', error);
+    }
+};
+
+// Get crop recommendations
+router.get('/recommendations', auth, async (req, res) => {
+    try {
+        const { season, soilType } = req.query;
+        
+        const recommendations = {
+            rabi: {
+                sandy: ['Wheat', 'Barley', 'Mustard', 'Gram', 'Potato'],
+                loam: ['Wheat', 'Barley', 'Mustard', 'Gram', 'Peas', 'Onion'],
+                clay: ['Wheat', 'Mustard', 'Gram', 'Lentil', 'Garlic']
+            },
+            kharif: {
+                sandy: ['Rice', 'Maize', 'Cotton', 'Soybean', 'Groundnut'],
+                loam: ['Rice', 'Maize', 'Cotton', 'Soybean', 'Sugarcane'],
+                clay: ['Rice', 'Jute', 'Sugarcane', 'Turmeric', 'Ginger']
+            },
+            zaid: {
+                sandy: ['Watermelon', 'Cucumber', 'Bitter Gourd', 'Pumpkin'],
+                loam: ['Watermelon', 'Muskmelon', 'Cucumber', 'Tomato'],
+                clay: ['Rice', 'Vegetables', 'Fodder Crops']
+            }
+        };
+
+        const crops = recommendations[season]?.[soilType] || [];
+        
+        // Get additional details for each crop
+        const cropDetails = crops.map(cropName => {
+            const requirements = getCropRequirements(cropName);
+            return {
+                name: cropName,
+                ...requirements
+            };
+        });
+
+        res.json(cropDetails);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get crop requirements
+const getCropRequirements = (cropName) => {
+    const requirements = {
+        Wheat: {
+            seedPerAcre: 40,
+            fertilizer: 'NPK 120:60:40 kg/ha',
+            water: '500-600 mm',
+            duration: '120-140 days',
+            yield: '2.5-3.5 tons/acre',
+            operations: [
+                { name: 'Land Preparation', daysAfterSowing: -7, type: 'preparation' },
+                { name: 'Sowing', daysAfterSowing: 0, type: 'sowing' },
+                { name: 'First Irrigation', daysAfterSowing: 21, type: 'irrigation' },
+                { name: 'Weeding', daysAfterSowing: 30, type: 'weeding' },
+                { name: 'Fertilizer Application', daysAfterSowing: 45, type: 'fertilizer' },
+                { name: 'Second Irrigation', daysAfterSowing: 60, type: 'irrigation' },
+                { name: 'Harvesting', daysAfterSowing: 120, type: 'harvesting' }
+            ]
+        },
+        Rice: {
+            seedPerAcre: 8,
+            fertilizer: 'NPK 100:50:50 kg/ha',
+            water: '1000-1500 mm',
+            duration: '100-150 days',
+            yield: '2-3 tons/acre',
+            operations: [
+                { name: 'Nursery Preparation', daysAfterSowing: -30, type: 'preparation' },
+                { name: 'Transplanting', daysAfterSowing: 0, type: 'sowing' },
+                { name: 'First Irrigation', daysAfterSowing: 1, type: 'irrigation' },
+                { name: 'Weeding', daysAfterSowing: 20, type: 'weeding' },
+                { name: 'Fertilizer Application', daysAfterSowing: 30, type: 'fertilizer' },
+                { name: 'Pest Control', daysAfterSowing: 45, type: 'pest-control' },
+                { name: 'Harvesting', daysAfterSowing: 120, type: 'harvesting' }
+            ]
+        },
+        // Add more crops as needed
+    };
+
+    return requirements[cropName] || requirements['Wheat'];
+};
+
+// Get annual timeline
+router.get('/timeline', auth, async (req, res) => {
+    try {
+        const { year } = req.query;
+        const targetYear = year || new Date().getFullYear();
+        const startDate = new Date(`${targetYear}-01-01`);
+        const endDate = new Date(`${targetYear}-12-31`);
+
+        const timeline = await TimelineEvent.find({
+            farmer: req.user.id,
+            date: { $gte: startDate, $lte: endDate }
+        })
+        .populate('crop', 'name variety area')
+        .sort({ date: 1 });
+
+        // Group by month
+        const monthlyTimeline = {};
+        timeline.forEach(event => {
+            const month = event.date.toLocaleString('default', { month: 'short' });
+            if (!monthlyTimeline[month]) {
+                monthlyTimeline[month] = [];
+            }
+            monthlyTimeline[month].push(event);
+        });
+
+        res.json({
+            events: timeline,
+            monthlyTimeline,
+            stats: {
+                totalEvents: timeline.length,
+                upcoming: timeline.filter(e => e.status === 'upcoming').length,
+                completed: timeline.filter(e => e.status === 'completed').length
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+module.exports = router;
+-e 
+===== FILE: ./routes/timeline.js =====
+
+const express = require('express');
+const router = express.Router();
+const auth = require('../middleware/auth');
+const TimelineActivity = require('../models/Timeline');
+const { Crop, Worker } = require('../models');
+
+// Get all timeline activities with filters
+router.get('/', auth, async (req, res) => {
+    try {
+        const {
+            startDate,
+            endDate,
+            status,
+            type,
+            crop,
+            field,
+            worker,
+            category,
+            priority,
+            search
+        } = req.query;
+        
+        let query = { farmer: req.user.id };
+        
+        // Date filter
+        if (startDate || endDate) {
+            query.plannedDate = {};
+            if (startDate) query.plannedDate.$gte = new Date(startDate);
+            if (endDate) query.plannedDate.$lte = new Date(endDate);
+        }
+        
+        // Status filter
+        if (status) query.status = status;
+        if (type) query.type = type;
+        if (category) query.category = category;
+        if (priority) query.priority = priority;
+        if (crop) query.crop = crop;
+        if (field) query.field = field;
+        
+        // Worker filter
+        if (worker) {
+            query['assignedTo.worker'] = worker;
+        }
+        
+        // Search filter
+        if (search) {
+            query.$or = [
+                { title: { $regex: search, $options: 'i' } },
+                { description: { $regex: search, $options: 'i' } },
+                { cropName: { $regex: search, $options: 'i' } }
+            ];
+        }
+        
+        const activities = await TimelineActivity.find(query)
+            .populate('crop', 'name variety area')
+            // .populate('field', 'name size location') // Field model might not exist
+            .populate('assignedTo.worker', 'name phone')
+            .sort({ plannedDate: 1, priority: -1 })
+            .lean();
+        
+        // Get today's activities
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        const todayActivities = activities.filter(activity => {
+            const activityDate = new Date(activity.plannedDate);
+            return activityDate >= today && activityDate < tomorrow;
+        });
+        
+        // Get overdue activities
+        const overdueActivities = activities.filter(activity => 
+            activity.status === 'upcoming' && 
+            new Date(activity.plannedDate) < today
+        );
+        
+        res.json({
+            activities,
+            stats: {
+                total: activities.length,
+                upcoming: activities.filter(a => a.status === 'upcoming').length,
+                inProgress: activities.filter(a => a.status === 'in_progress').length,
+                completed: activities.filter(a => a.status === 'completed').length,
+                overdue: overdueActivities.length,
+                today: todayActivities.length
+            },
+            todayActivities,
+            overdueActivities,
+            filters: req.query
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get activity by ID
+router.get('/:id', auth, async (req, res) => {
+    try {
+        const activity = await TimelineActivity.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        })
+        .populate('crop', 'name variety area status')
+        // .populate('field', 'name size location')
+        .populate('assignedTo.worker', 'name phone role')
+        .populate('comments.user', 'name role');
+        
+        if (!activity) {
+            return res.status(404).json({ error: 'Activity not found' });
+        }
+        
+        res.json(activity);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create new activity
+router.post('/', auth, async (req, res) => {
+    try {
+        const activityData = {
+            ...req.body,
+            farmer: req.user.id,
+            createdBy: req.user.id,
+            updatedBy: req.user.id
+        };
+        
+        // Auto-populate crop name if crop ID is provided
+        if (activityData.crop) {
+            const crop = await Crop.findById(activityData.crop);
+            if (crop) {
+                activityData.cropName = crop.name;
+                activityData.cropVariety = crop.variety;
+            }
+        }
+        
+        const activity = new TimelineActivity(activityData);
+        await activity.save();
+        
+        res.status(201).json(activity);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update activity
+router.put('/:id', auth, async (req, res) => {
+    try {
+        const activity = await TimelineActivity.findOneAndUpdate(
+            { _id: req.params.id, farmer: req.user.id },
+            { 
+                ...req.body,
+                updatedBy: req.user.id,
+                updatedAt: new Date()
+            },
+            { new: true, runValidators: true }
+        );
+        
+        if (!activity) {
+            return res.status(404).json({ error: 'Activity not found' });
+        }
+        
+        res.json(activity);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete activity
+router.delete('/:id', auth, async (req, res) => {
+    try {
+        const activity = await TimelineActivity.findOneAndDelete({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!activity) {
+            return res.status(404).json({ error: 'Activity not found' });
+        }
+        
+        res.json({ message: 'Activity deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Start activity (mark as in progress)
+router.post('/:id/start', auth, async (req, res) => {
+    try {
+        const activity = await TimelineActivity.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!activity) {
+            return res.status(404).json({ error: 'Activity not found' });
+        }
+        
+        await activity.startActivity();
+        res.json(activity);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Complete activity
+router.post('/:id/complete', auth, async (req, res) => {
+    try {
+        const { notes, attachments, actualCost, efficiencyScore } = req.body;
+        
+        const activity = await TimelineActivity.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!activity) {
+            return res.status(404).json({ error: 'Activity not found' });
+        }
+        
+        if (actualCost) activity.actualCost = actualCost;
+        if (efficiencyScore) activity.efficiencyScore = efficiencyScore;
+        
+        await activity.completeActivity(notes, attachments);
+        res.json(activity);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Add comment to activity
+router.post('/:id/comments', auth, async (req, res) => {
+    try {
+        const { text, attachments } = req.body;
+        
+        const activity = await TimelineActivity.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!activity) {
+            return res.status(404).json({ error: 'Activity not found' });
+        }
+        
+        activity.comments.push({
+            user: req.user.id,
+            userName: req.user.name,
+            userRole: req.user.role,
+            text,
+            attachments: attachments || [],
+            createdAt: new Date()
+        });
+        
+        await activity.save();
+        res.json(activity);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Upload attachment
+router.post('/:id/attachments', auth, async (req, res) => {
+    try {
+        const { filename, url, type } = req.body;
+        
+        const activity = await TimelineActivity.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!activity) {
+            return res.status(404).json({ error: 'Activity not found' });
+        }
+        
+        activity.attachments.push({
+            filename,
+            url,
+            type: type || 'photo',
+            uploadedAt: new Date()
+        });
+        
+        await activity.save();
+        res.json(activity);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get analytics
+router.get('/analytics/overview', auth, async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        
+        let dateFilter = {};
+        if (startDate || endDate) {
+            dateFilter.plannedDate = {};
+            if (startDate) dateFilter.plannedDate.$gte = new Date(startDate);
+            if (endDate) dateFilter.plannedDate.$lte = new Date(endDate);
+        }
+        
+        const activities = await TimelineActivity.find({
+            farmer: req.user.id,
+            ...dateFilter
+        });
+        
+        // Calculate analytics
+        const totalActivities = activities.length;
+        const completedActivities = activities.filter(a => a.status === 'completed');
+        const totalCost = completedActivities.reduce((sum, a) => sum + (a.actualCost || 0), 0);
+        const totalLaborHours = completedActivities.reduce((sum, a) => {
+            return sum + (a.assignedTo?.reduce((h, w) => h + (w.hoursWorked || 0), 0) || 0);
+        }, 0);
+        
+        // Activity type distribution
+        const typeDistribution = activities.reduce((acc, activity) => {
+            acc[activity.type] = (acc[activity.type] || 0) + 1;
+            return acc;
+        }, {});
+        
+        // Completion rate by type
+        const completionRate = Object.keys(typeDistribution).reduce((acc, type) => {
+            const typeActivities = activities.filter(a => a.type === type);
+            const completed = typeActivities.filter(a => a.status === 'completed').length;
+            acc[type] = {
+                total: typeActivities.length,
+                completed,
+                rate: typeActivities.length > 0 ? (completed / typeActivities.length * 100).toFixed(1) : 0
+            };
+            return acc;
+        }, {});
+        
+        // Average delay
+        const delayedActivities = completedActivities.filter(a => 
+            a.actualDate && a.plannedDate && a.actualDate > a.plannedDate
+        );
+        const avgDelay = delayedActivities.length > 0 
+            ? delayedActivities.reduce((sum, a) => {
+                const delay = Math.floor((a.actualDate - a.plannedDate) / (1000 * 60 * 60 * 24));
+                return sum + delay;
+            }, 0) / delayedActivities.length
+            : 0;
+        
+        res.json({
+            overview: {
+                totalActivities,
+                completedActivities: completedActivities.length,
+                completionRate: totalActivities > 0 ? (completedActivities.length / totalActivities * 100).toFixed(1) : 0,
+                totalCost,
+                totalLaborHours,
+                avgDelay: avgDelay.toFixed(1)
+            },
+            typeDistribution,
+            completionRate,
+            topCrops: getTopCrops(activities),
+            efficiencyTrends: getEfficiencyTrends(activities),
+            upcomingSchedule: await getUpcomingSchedule(req.user.id)
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Helper functions
+function getTopCrops(activities) {
+    const cropCount = activities.reduce((acc, activity) => {
+        if (activity.cropName) {
+            acc[activity.cropName] = (acc[activity.cropName] || 0) + 1;
+        }
+        return acc;
+    }, {});
+    
+    return Object.entries(cropCount)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([crop, count]) => ({ crop, count }));
+}
+
+function getEfficiencyTrends(activities) {
+    const monthlyData = activities.reduce((acc, activity) => {
+        if (activity.actualDate && activity.efficiencyScore) {
+            const month = activity.actualDate.toISOString().slice(0, 7); // YYYY-MM
+            if (!acc[month]) acc[month] = { total: 0, sum: 0 };
+            acc[month].total++;
+            acc[month].sum += activity.efficiencyScore;
+        }
+        return acc;
+    }, {});
+    
+    return Object.entries(monthlyData).map(([month, data]) => ({
+        month,
+        avgEfficiency: (data.sum / data.total).toFixed(1)
+    }));
+}
+
+async function getUpcomingSchedule(farmerId) {
+    const nextWeek = new Date();
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    
+    return TimelineActivity.find({
+        farmer: farmerId,
+        status: 'upcoming',
+        plannedDate: { $lte: nextWeek }
+    })
+    .sort({ plannedDate: 1 })
+    .limit(10)
+    .select('title type plannedDate cropName priority')
+    .lean();
+}
+
+// Generate activities from crop plan
+router.post('/generate-from-plan', auth, async (req, res) => {
+    try {
+        const { cropId, startDate } = req.body;
+        
+        const crop = await Crop.findOne({
+            _id: cropId,
+            farmer: req.user.id
+        });
+        
+        if (!crop) {
+            return res.status(404).json({ error: 'Crop not found' });
+        }
+        
+        const sowingDate = new Date(startDate || crop.sowingDate);
+        const activities = [];
+        
+        // Generate standard activities based on crop type
+        const cropActivities = getCropActivities(crop.name, sowingDate, crop.area);
+        
+        for (const activityData of cropActivities) {
+            const activity = new TimelineActivity({
+                farmer: req.user.id,
+                crop: crop._id,
+                cropName: crop.name,
+                cropVariety: crop.variety,
+                area: crop.area,
+                createdBy: req.user.id,
+                updatedBy: req.user.id,
+                source: 'crop_plan',
+                ...activityData
+            });
+            
+            await activity.save();
+            activities.push(activity);
+        }
+        
+        res.json({
+            message: `Generated ${activities.length} activities from crop plan`,
+            activities
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+function getCropActivities(cropName, sowingDate, area) {
+    const activities = [];
+    const baseDate = new Date(sowingDate);
+    
+    // Common activities for most crops
+    activities.push({
+        title: `Field Preparation - ${cropName}`,
+        type: 'field_preparation',
+        plannedDate: new Date(baseDate.getTime() - 7 * 24 * 60 * 60 * 1000), // 7 days before
+        duration: 8,
+        priority: 'high',
+        description: 'Prepare land for sowing',
+        resources: [
+            { name: 'Labor', quantity: 2, unit: 'persons', cost: 800 },
+            { name: 'Tractor', quantity: 4, unit: 'hours', cost: 2000 }
+        ]
+    });
+    
+    activities.push({
+        title: `Sowing - ${cropName}`,
+        type: 'sowing',
+        plannedDate: baseDate,
+        duration: 6,
+        priority: 'critical',
+        description: 'Sow seeds in prepared field'
+    });
+    
+    // Add more crop-specific activities
+    if (cropName.toLowerCase() === 'rice') {
+        activities.push(
+            {
+                title: 'Transplanting',
+                type: 'transplanting',
+                plannedDate: new Date(baseDate.getTime() + 25 * 24 * 60 * 60 * 1000),
+                duration: 8,
+                priority: 'high'
+            },
+            {
+                title: 'First Irrigation',
+                type: 'irrigation',
+                plannedDate: new Date(baseDate.getTime() + 1 * 24 * 60 * 60 * 1000),
+                duration: 4,
+                priority: 'medium'
+            }
+        );
+    }
+    
+    return activities;
+}
+
+module.exports = router;
+-e 
+===== FILE: ./routes/resources.js =====
+
+const express = require('express');
+const router = express.Router();
+const auth = require('../middleware/auth');
+const Resource = require('../models/Resource');
+// Import models from index or directly, consistent with project style
+// Using require('../models') if possible, otherwise direct.
+// In timeline.js I used direct require for TimelineActivity and destructuring for Crop, Worker.
+// Let's check what's available in ../models/index.js.
+// It has Crop, CropPlan, TimelineEvent, Activity, Worker, Field, TimelineActivity.
+const { Crop, TimelineActivity, Worker } = require('../models');
+
+// Get all resources with filters
+router.get('/', auth, async (req, res) => {
+    try {
+        const {
+            category,
+            location,
+            isEquipment,
+            lowStock,
+            expired,
+            maintenanceDue,
+            search
+        } = req.query;
+        
+        let query = { farmer: req.user.id, isArchived: false };
+        
+        // Apply filters
+        if (category) query.category = category;
+        if (location) query.location = location;
+        if (isEquipment) query.isEquipment = isEquipment === 'true';
+        
+        // Search filter
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { description: { $regex: search, $options: 'i' } },
+                { brand: { $regex: search, $options: 'i' } }
+            ];
+        }
+        
+        let resources = await Resource.find(query)
+            .populate('crops.crop', 'name variety')
+            .sort({ category: 1, name: 1 });
+        
+        // Apply additional filters after query
+        if (lowStock === 'true') {
+            resources = resources.filter(r => r.availableQuantity <= r.minimumThreshold);
+        }
+        
+        if (expired === 'true') {
+            const now = new Date();
+            resources = resources.filter(r => r.expiryDate && r.expiryDate < now);
+        }
+        
+        if (maintenanceDue === 'true') {
+            const now = new Date();
+            const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+            resources = resources.filter(r => 
+                r.isEquipment && 
+                r.nextMaintenanceDate && 
+                r.nextMaintenanceDate <= nextWeek
+            );
+        }
+        
+        // Calculate summary statistics
+        const stats = {
+            totalResources: resources.length,
+            totalValue: resources.reduce((sum, r) => sum + (r.totalCost || 0), 0),
+            lowStockCount: resources.filter(r => r.availableQuantity <= r.minimumThreshold).length,
+            equipmentCount: resources.filter(r => r.isEquipment).length,
+            expiredCount: resources.filter(r => r.expiryDate && r.expiryDate < new Date()).length,
+            byCategory: resources.reduce((acc, r) => {
+                acc[r.category] = (acc[r.category] || 0) + 1;
+                return acc;
+            }, {})
+        };
+        
+        res.json({ resources, stats });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get resource by ID
+router.get('/:id', auth, async (req, res) => {
+    try {
+        const resource = await Resource.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        })
+        .populate('crops.crop', 'name variety area')
+        .populate('usageHistory.activity', 'title type')
+        .populate('usageHistory.crop', 'name')
+        .populate('usageHistory.worker', 'name')
+        .populate('supervisorNotes.supervisor', 'name role');
+        
+        if (!resource) {
+            return res.status(404).json({ error: 'Resource not found' });
+        }
+        
+        res.json(resource);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create new resource
+router.post('/', auth, async (req, res) => {
+    try {
+        const resourceData = {
+            ...req.body,
+            farmer: req.user.id,
+            createdBy: req.user.id,
+            updatedBy: req.user.id
+        };
+        
+        // Set available quantity equal to total quantity for new resources
+        if (resourceData.totalQuantity && !resourceData.availableQuantity) {
+            resourceData.availableQuantity = resourceData.totalQuantity;
+        }
+        
+        const resource = new Resource(resourceData);
+        await resource.save();
+        
+        res.status(201).json(resource);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update resource
+router.put('/:id', auth, async (req, res) => {
+    try {
+        const resource = await Resource.findOneAndUpdate(
+            { _id: req.params.id, farmer: req.user.id },
+            {
+                ...req.body,
+                updatedBy: req.user.id,
+                updatedAt: new Date()
+            },
+            { new: true, runValidators: true }
+        );
+        
+        if (!resource) {
+            return res.status(404).json({ error: 'Resource not found' });
+        }
+        
+        res.json(resource);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Archive resource (soft delete)
+router.delete('/:id', auth, async (req, res) => {
+    try {
+        const resource = await Resource.findOneAndUpdate(
+            { _id: req.params.id, farmer: req.user.id },
+            { isArchived: true, updatedAt: new Date() },
+            { new: true }
+        );
+        
+        if (!resource) {
+            return res.status(404).json({ error: 'Resource not found' });
+        }
+        
+        res.json({ message: 'Resource archived successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Use resource (deduct from inventory)
+router.post('/:id/use', auth, async (req, res) => {
+    try {
+        const { quantity, activityId, cropId, workerId, notes } = req.body;
+        
+        const resource = await Resource.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!resource) {
+            return res.status(404).json({ error: 'Resource not found' });
+        }
+        
+        // Get activity details
+        let activityTitle = '';
+        if (activityId) {
+            const activity = await TimelineActivity.findById(activityId);
+            activityTitle = activity?.title || '';
+        }
+        
+        // Get crop details
+        let cropName = '';
+        if (cropId) {
+            const crop = await Crop.findById(cropId);
+            cropName = crop?.name || '';
+        }
+
+        // Get worker details
+        let workerName = '';
+        if (workerId) {
+             const worker = await Worker.findById(workerId);
+             workerName = worker?.name || '';
+        }
+        
+        // Use the resource
+        await resource.useResource({
+            quantity: parseFloat(quantity),
+            activity: activityId,
+            activityTitle,
+            crop: cropId,
+            cropName,
+            worker: workerId,
+            workerName,
+            notes,
+            approved: true,
+            approvedBy: req.user.id
+        });
+        
+        res.json(resource);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Add stock to resource
+router.post('/:id/add-stock', auth, async (req, res) => {
+    try {
+        const { quantity, costPerUnit, vendor, purchaseDate } = req.body;
+        
+        const resource = await Resource.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!resource) {
+            return res.status(404).json({ error: 'Resource not found' });
+        }
+        
+        await resource.addStock(
+            parseFloat(quantity),
+            costPerUnit ? parseFloat(costPerUnit) : undefined,
+            vendor
+        );
+        
+        if (purchaseDate) {
+            resource.purchaseDate = new Date(purchaseDate);
+            await resource.save();
+        }
+        
+        res.json(resource);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get resource usage history
+router.get('/:id/usage-history', auth, async (req, res) => {
+    try {
+        const { startDate, endDate, cropId } = req.query;
+        
+        const resource = await Resource.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        }).select('usageHistory');
+        
+        if (!resource) {
+            return res.status(404).json({ error: 'Resource not found' });
+        }
+        
+        let usageHistory = resource.usageHistory;
+        
+        // Apply filters
+        if (startDate || endDate) {
+            usageHistory = usageHistory.filter(usage => {
+                const usageDate = new Date(usage.date);
+                if (startDate && usageDate < new Date(startDate)) return false;
+                if (endDate && usageDate > new Date(endDate)) return false;
+                return true;
+            });
+        }
+        
+        if (cropId) {
+            usageHistory = usageHistory.filter(usage => 
+                usage.crop && usage.crop.toString() === cropId
+            );
+        }
+        
+        // Sort by date
+        usageHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+        
+        res.json(usageHistory);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Add supervisor note
+router.post('/:id/supervisor-notes', auth, async (req, res) => {
+    try {
+        const { note } = req.body;
+        
+        const resource = await Resource.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!resource) {
+            return res.status(404).json({ error: 'Resource not found' });
+        }
+        
+        resource.supervisorNotes.push({
+            supervisor: req.user.id,
+            supervisorName: req.user.name,
+            note,
+            date: new Date(),
+            approved: false
+        });
+        
+        await resource.save();
+        res.json(resource);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Mark alert as resolved
+router.post('/:id/alerts/:alertId/resolve', auth, async (req, res) => {
+    try {
+        const resource = await Resource.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!resource) {
+            return res.status(404).json({ error: 'Resource not found' });
+        }
+        
+        const alert = resource.alerts.id(req.params.alertId);
+        if (!alert) {
+            return res.status(404).json({ error: 'Alert not found' });
+        }
+        
+        alert.resolved = true;
+        await resource.save();
+        
+        res.json(resource);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get resource analytics
+router.get('/analytics/overview', auth, async (req, res) => {
+    try {
+        const resources = await Resource.find({ 
+            farmer: req.user.id,
+            isArchived: false 
+        });
+        
+        // Total value by category
+        const valueByCategory = resources.reduce((acc, resource) => {
+            const category = resource.category;
+            acc[category] = (acc[category] || 0) + (resource.totalCost || 0);
+            return acc;
+        }, {});
+        
+        // Monthly usage trend
+        const monthlyUsage = {};
+        resources.forEach(resource => {
+            resource.monthlyUsage.forEach(monthly => {
+                if (!monthlyUsage[monthly.month]) {
+                    monthlyUsage[monthly.month] = { quantity: 0, cost: 0 };
+                }
+                monthlyUsage[monthly.month].quantity += monthly.quantity;
+                monthlyUsage[monthly.month].cost += monthly.cost;
+            });
+        });
+        
+        // Top used resources
+        const topUsed = resources
+            .map(r => ({
+                name: r.name,
+                category: r.category,
+                usedQuantity: r.usedQuantity,
+                unit: r.unit,
+                cost: r.usedQuantity * (r.costPerUnit || 0)
+            }))
+            .sort((a, b) => b.usedQuantity - a.usedQuantity)
+            .slice(0, 10);
+        
+        // Resource health status
+        const lowStockItems = await Resource.getLowStockItems(req.user.id);
+        const expiredItems = await Resource.getExpiredItems(req.user.id);
+        const maintenanceDueItems = await Resource.getMaintenanceDueItems(req.user.id);
+        
+        res.json({
+            overview: {
+                totalResources: resources.length,
+                totalValue: resources.reduce((sum, r) => sum + (r.totalCost || 0), 0),
+                activeAlerts: resources.reduce((sum, r) => sum + r.alerts.filter(a => !a.resolved).length, 0)
+            },
+            valueByCategory,
+            monthlyUsage,
+            topUsed,
+            alerts: {
+                lowStock: lowStockItems.length,
+                expired: expiredItems.length,
+                maintenanceDue: maintenanceDueItems.length
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get recommendations based on crop plan
+router.get('/recommendations', auth, async (req, res) => {
+    try {
+        const { cropId, area } = req.query;
+        
+        if (!cropId) {
+            return res.status(400).json({ error: 'Crop ID is required' });
+        }
+        
+        const crop = await Crop.findOne({
+            _id: cropId,
+            farmer: req.user.id
+        });
+        
+        if (!crop) {
+            return res.status(404).json({ error: 'Crop not found' });
+        }
+        
+        // Get standard recommendations for this crop
+        const recommendations = await getCropRecommendations(crop.name, parseFloat(area || crop.area));
+        
+        // Check current inventory
+        const resources = await Resource.find({
+            farmer: req.user.id,
+            isArchived: false
+        });
+        
+        const recommendationsWithInventory = recommendations.map(rec => {
+            const existingResource = resources.find(r => 
+                r.name.toLowerCase().includes(rec.name.toLowerCase()) ||
+                rec.name.toLowerCase().includes(r.name.toLowerCase())
+            );
+            
+            return {
+                ...rec,
+                existingInInventory: existingResource ? {
+                    available: existingResource.availableQuantity,
+                    unit: existingResource.unit,
+                    needs: Math.max(0, rec.quantity - existingResource.availableQuantity)
+                } : null
+            };
+        });
+        
+        res.json({
+            crop: crop.name,
+            area: area || crop.area,
+            recommendations: recommendationsWithInventory
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Helper function for crop recommendations
+async function getCropRecommendations(cropName, area) {
+    const recommendations = {
+        'Rice': [
+            { name: 'Rice Seeds', category: 'seeds', quantity: 8 * area, unit: 'kg' },
+            { name: 'Urea', category: 'fertilizers', quantity: 60 * area, unit: 'kg' },
+            { name: 'DAP', category: 'fertilizers', quantity: 30 * area, unit: 'kg' },
+            { name: 'MOP', category: 'fertilizers', quantity: 30 * area, unit: 'kg' },
+            { name: 'Insecticide', category: 'pesticides', quantity: 2 * area, unit: 'liters' }
+        ],
+        'Wheat': [
+            { name: 'Wheat Seeds', category: 'seeds', quantity: 40 * area, unit: 'kg' },
+            { name: 'Urea', category: 'fertilizers', quantity: 50 * area, unit: 'kg' },
+            { name: 'DAP', category: 'fertilizers', quantity: 25 * area, unit: 'kg' },
+            { name: 'Herbicide', category: 'herbicides', quantity: 1 * area, unit: 'liters' }
+        ],
+        'Cotton': [
+            { name: 'Cotton Seeds', category: 'seeds', quantity: 2 * area, unit: 'kg' },
+            { name: 'NPK Fertilizer', category: 'fertilizers', quantity: 80 * area, unit: 'kg' },
+            { name: 'Pesticide', category: 'pesticides', quantity: 3 * area, unit: 'liters' }
+        ]
+    };
+    
+    return recommendations[cropName] || [
+        { name: 'Seeds', category: 'seeds', quantity: 10 * area, unit: 'kg' },
+        { name: 'General Fertilizer', category: 'fertilizers', quantity: 50 * area, unit: 'kg' },
+        { name: 'General Pesticide', category: 'pesticides', quantity: 1 * area, unit: 'liters' }
+    ];
+}
+
+// Export resources to CSV
+router.get('/export/csv', auth, async (req, res) => {
+    try {
+        const resources = await Resource.find({ 
+            farmer: req.user.id,
+            isArchived: false 
+        });
+        
+        // Create CSV header
+        let csv = 'Name,Category,Available Quantity,Unit,Cost per Unit,Total Cost,Location,Expiry Date,Status\n';
+        
+        // Add data rows
+        resources.forEach(resource => {
+            const row = [
+                `"${resource.name}"`, // Corrected escaping for double quotes within a string
+                resource.category,
+                resource.availableQuantity,
+                resource.unit,
+                resource.costPerUnit || 0,
+                resource.totalCost || 0,
+                resource.location,
+                resource.expiryDate ? resource.expiryDate.toISOString().split('T')[0] : '',
+                resource.isEquipment ? resource.equipmentStatus : 'Active'
+            ].join(',');
+            
+            csv += row + '\n';
+        });
+        
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename=resources-export.csv');
+        res.send(csv);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+module.exports = router;
+-e 
+===== FILE: ./routes/financial.js =====
+
+const express = require('express');
+const router = express.Router();
+const auth = require('../middleware/auth');
+const { FinancialTransaction, Budget } = require('../models/Financial');
+const { Crop, TimelineActivity, Resource } = require('../models');
+
+// Get all transactions with filters
+router.get('/transactions', auth, async (req, res) => {
+    try {
+        const {
+            startDate,
+            endDate,
+            type,
+            category,
+            paymentStatus,
+            crop,
+            search,
+            page = 1,
+            limit = 50
+        } = req.query;
+        
+        let query = { farmer: req.user.id };
+        
+        // Date filter
+        if (startDate || endDate) {
+            query.transactionDate = {};
+            if (startDate) query.transactionDate.$gte = new Date(startDate);
+            if (endDate) query.transactionDate.$lte = new Date(endDate);
+        }
+        
+        // Other filters
+        if (type) query.type = type;
+        if (category) query.category = category;
+        if (paymentStatus) query.paymentStatus = paymentStatus;
+        if (crop) query.crop = crop;
+        
+        // Search filter
+        if (search) {
+            query.$or = [
+                { description: { $regex: search, $options: 'i' } },
+                { 'party.name': { $regex: search, $options: 'i' } },
+                { cropName: { $regex: search, $options: 'i' } }
+            ];
+        }
+        
+        const skip = (page - 1) * limit;
+        
+        const [transactions, total] = await Promise.all([
+            FinancialTransaction.find(query)
+                .populate('crop', 'name variety')
+                .populate('activity', 'title')
+                .populate('resource', 'name')
+                .sort({ transactionDate: -1 })
+                .skip(skip)
+                .limit(parseInt(limit))
+                .lean(),
+            FinancialTransaction.countDocuments(query)
+        ]);
+        
+        // Calculate summary
+        const summary = await FinancialTransaction.aggregate([
+            { $match: query },
+            {
+                $group: {
+                    _id: null,
+                    totalIncome: {
+                        $sum: { $cond: [{ $eq: ['$type', 'income'] }, '$amount', 0] }
+                    },
+                    totalExpense: {
+                        $sum: { $cond: [{ $eq: ['$type', 'expense'] }, '$amount', 0] }
+                    },
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+        
+        const summaryData = summary[0] || { totalIncome: 0, totalExpense: 0, count: 0 };
+        const netProfit = summaryData.totalIncome - summaryData.totalExpense;
+        
+        res.json({
+            transactions,
+            summary: {
+                ...summaryData,
+                netProfit,
+                profitMargin: summaryData.totalIncome > 0 ? (netProfit / summaryData.totalIncome) * 100 : 0
+            },
+            pagination: {
+                total,
+                page: parseInt(page),
+                limit: parseInt(limit),
+                pages: Math.ceil(total / limit)
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get transaction by ID
+router.get('/transactions/:id', auth, async (req, res) => {
+    try {
+        const transaction = await FinancialTransaction.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        })
+        .populate('crop', 'name variety area')
+        .populate('activity', 'title type')
+        .populate('resource', 'name category')
+        .populate('worker', 'name');
+        
+        if (!transaction) {
+            return res.status(404).json({ error: 'Transaction not found' });
+        }
+        
+        res.json(transaction);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create new transaction
+router.post('/transactions', auth, async (req, res) => {
+    try {
+        const transactionData = {
+            ...req.body,
+            farmer: req.user.id,
+            createdBy: req.user.id,
+            updatedBy: req.user.id
+        };
+        
+        // Auto-calculate total amount
+        if (!transactionData.totalAmount) {
+            transactionData.totalAmount = transactionData.amount + (transactionData.taxAmount || 0);
+        }
+        
+        // Auto-populate crop name if crop ID is provided
+        if (transactionData.crop) {
+            const crop = await Crop.findById(transactionData.crop);
+            if (crop) {
+                transactionData.cropName = crop.name;
+                transactionData.cropVariety = crop.variety;
+            }
+        }
+        
+        const transaction = new FinancialTransaction(transactionData);
+        await transaction.save();
+        
+        res.status(201).json(transaction);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update transaction
+router.put('/transactions/:id', auth, async (req, res) => {
+    try {
+        const transaction = await FinancialTransaction.findOneAndUpdate(
+            { _id: req.params.id, farmer: req.user.id },
+            {
+                ...req.body,
+                updatedBy: req.user.id,
+                updatedAt: new Date()
+            },
+            { new: true, runValidators: true }
+        );
+        
+        if (!transaction) {
+            return res.status(404).json({ error: 'Transaction not found' });
+        }
+        
+        res.json(transaction);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete transaction
+router.delete('/transactions/:id', auth, async (req, res) => {
+    try {
+        const transaction = await FinancialTransaction.findOneAndDelete({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!transaction) {
+            return res.status(404).json({ error: 'Transaction not found' });
+        }
+        
+        res.json({ message: 'Transaction deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Mark payment as paid
+router.post('/transactions/:id/mark-paid', auth, async (req, res) => {
+    try {
+        const { paymentDate, paymentMethod, paymentReference } = req.body;
+        
+        const transaction = await FinancialTransaction.findOneAndUpdate(
+            { _id: req.params.id, farmer: req.user.id },
+            {
+                paymentStatus: 'paid',
+                paymentDate: paymentDate || new Date(),
+                paymentMethod: paymentMethod || 'cash',
+                paymentReference,
+                updatedBy: req.user.id,
+                updatedAt: new Date()
+            },
+            { new: true }
+        );
+        
+        if (!transaction) {
+            return res.status(404).json({ error: 'Transaction not found' });
+        }
+        
+        res.json(transaction);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get profit/loss summary
+router.get('/profit-loss', auth, async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        
+        const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1);
+        const end = endDate ? new Date(endDate) : new Date();
+        
+        const result = await FinancialTransaction.getProfitLoss(req.user.id, start, end);
+        
+        // Get crop-wise profit
+        const cropWiseProfit = await FinancialTransaction.getCropWiseProfit(req.user.id);
+        
+        // Get monthly trends
+        const monthlyTrends = await FinancialTransaction.getMonthlyTrends(req.user.id, start.getFullYear());
+        
+        res.json({
+            period: { start, end },
+            summary: result,
+            cropWiseProfit,
+            monthlyTrends
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get pending payments
+router.get('/pending-payments', auth, async (req, res) => {
+    try {
+        const pendingPayments = await FinancialTransaction.getPendingPayments(req.user.id);
+        
+        const summary = pendingPayments.reduce((acc, payment) => {
+            if (payment.type === 'income') {
+                acc.pendingIncome += payment.amount;
+            } else if (payment.type === 'expense') {
+                acc.pendingExpenses += payment.amount;
+            }
+            return acc;
+        }, { pendingIncome: 0, pendingExpenses: 0 });
+        
+        res.json({
+            pendingPayments,
+            summary,
+            totalPending: pendingPayments.length
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get expense breakdown by category
+router.get('/expense-breakdown', auth, async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        
+        let matchQuery = {
+            farmer: req.user.id,
+            type: 'expense'
+        };
+        
+        if (startDate || endDate) {
+            matchQuery.transactionDate = {};
+            if (startDate) matchQuery.transactionDate.$gte = new Date(startDate);
+            if (endDate) matchQuery.transactionDate.$lte = new Date(endDate);
+        }
+        
+        const breakdown = await FinancialTransaction.aggregate([
+            { $match: matchQuery },
+            {
+                $group: {
+                    _id: '$category',
+                    totalAmount: { $sum: '$amount' },
+                    count: { $sum: 1 },
+                    averageAmount: { $avg: '$amount' }
+                }
+            },
+            { $sort: { totalAmount: -1 } }
+        ]);
+        
+        const totalExpense = breakdown.reduce((sum, item) => sum + item.totalAmount, 0);
+        
+        // Add percentage to each category
+        const breakdownWithPercent = breakdown.map(item => ({
+            ...item,
+            percentage: totalExpense > 0 ? (item.totalAmount / totalExpense) * 100 : 0
+        }));
+        
+        res.json({
+            breakdown: breakdownWithPercent,
+            totalExpense,
+            categoryCount: breakdown.length
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get income breakdown by source
+router.get('/income-breakdown', auth, async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        
+        let matchQuery = {
+            farmer: req.user.id,
+            type: 'income'
+        };
+        
+        if (startDate || endDate) {
+            matchQuery.transactionDate = {};
+            if (startDate) matchQuery.transactionDate.$gte = new Date(startDate);
+            if (endDate) matchQuery.transactionDate.$lte = new Date(endDate);
+        }
+        
+        const breakdown = await FinancialTransaction.aggregate([
+            { $match: matchQuery },
+            {
+                $group: {
+                    _id: '$source',
+                    totalAmount: { $sum: '$amount' },
+                    count: { $sum: 1 },
+                    averageAmount: { $avg: '$amount' }
+                }
+            },
+            { $sort: { totalAmount: -1 } }
+        ]);
+        
+        const totalIncome = breakdown.reduce((sum, item) => sum + item.totalAmount, 0);
+        
+        // Add percentage to each source
+        const breakdownWithPercent = breakdown.map(item => ({
+            ...item,
+            percentage: totalIncome > 0 ? (item.totalAmount / totalIncome) * 100 : 0
+        }));
+        
+        res.json({
+            breakdown: breakdownWithPercent,
+            totalIncome,
+            sourceCount: breakdown.length
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Generate financial report
+router.get('/report', auth, async (req, res) => {
+    try {
+        const { startDate, endDate, reportType } = req.query;
+        
+        const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1);
+        const end = endDate ? new Date(endDate) : new Date();
+        
+        const [profitLoss, expenseBreakdown, incomeBreakdown, pendingPayments, cropWiseProfit] = await Promise.all([
+            FinancialTransaction.getProfitLoss(req.user.id, start, end),
+            FinancialTransaction.aggregate([
+                {
+                    $match: {
+                        farmer: req.user.id,
+                        type: 'expense',
+                        transactionDate: { $gte: start, $lte: end }
+                    }
+                },
+                {
+                    $group: {
+                        _id: '$category',
+                        totalAmount: { $sum: '$amount' }
+                    }
+                },
+                { $sort: { totalAmount: -1 } }
+            ]),
+            FinancialTransaction.aggregate([
+                {
+                    $match: {
+                        farmer: req.user.id,
+                        type: 'income',
+                        transactionDate: { $gte: start, $lte: end }
+                    }
+                },
+                {
+                    $group: {
+                        _id: '$source',
+                        totalAmount: { $sum: '$amount' }
+                    }
+                },
+                { $sort: { totalAmount: -1 } }
+            ]),
+            FinancialTransaction.getPendingPayments(req.user.id),
+            FinancialTransaction.getCropWiseProfit(req.user.id)
+        ]);
+        
+        const report = {
+            period: { start, end },
+            profitLoss,
+            expenseBreakdown,
+            incomeBreakdown,
+            pendingPayments: {
+                items: pendingPayments,
+                total: pendingPayments.length
+            },
+            cropWiseProfit,
+            generatedAt: new Date()
+        };
+        
+        res.json(report);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Export financial data to CSV
+router.get('/export/csv', auth, async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        
+        let query = { farmer: req.user.id };
+        
+        if (startDate || endDate) {
+            query.transactionDate = {};
+            if (startDate) query.transactionDate.$gte = new Date(startDate);
+            if (endDate) query.transactionDate.$lte = new Date(endDate);
+        }
+        
+        const transactions = await FinancialTransaction.find(query)
+            .sort({ transactionDate: 1 })
+            .lean();
+        
+        // Create CSV header
+        let csv = 'Date,Type,Category/Source,Description,Amount,Payment Status,Crop,Party\n';
+        
+        // Add data rows
+        transactions.forEach(transaction => {
+            const row = [
+                new Date(transaction.transactionDate).toISOString().split('T')[0],
+                transaction.type,
+                transaction.type === 'income' ? transaction.source : transaction.category,
+                `"${transaction.description}"`, // Corrected: escaped quote within template literal
+                transaction.amount,
+                transaction.paymentStatus,
+                transaction.cropName || '',
+                transaction.party?.name || ''
+            ].join(',');
+            
+            csv += row + '\n';
+        });
+        
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', 'attachment; filename=financial-report.csv');
+        res.send(csv);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Budget Management
+router.get('/budgets', auth, async (req, res) => {
+    try {
+        const budgets = await Budget.find({ farmer: req.user.id })
+            .sort({ startDate: -1 })
+            .lean();
+        
+        res.json(budgets);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.post('/budgets', auth, async (req, res) => {
+    try {
+        const budgetData = {
+            ...req.body,
+            farmer: req.user.id
+        };
+        
+        const budget = new Budget(budgetData);
+        await budget.save();
+        
+        res.status(201).json(budget);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.put('/budgets/:id', auth, async (req, res) => {
+    try {
+        const budget = await Budget.findOneAndUpdate(
+            { _id: req.params.id, farmer: req.user.id },
+            { ...req.body, updatedAt: new Date() },
+            { new: true }
+        );
+        
+        if (!budget) {
+            return res.status(404).json({ error: 'Budget not found' });
+        }
+        
+        // Recalculate variances
+        budget.calculateVariances();
+        await budget.save();
+        
+        res.json(budget);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get budget vs actual comparison
+router.get('/budgets/:id/analysis', auth, async (req, res) => {
+    try {
+        const budget = await Budget.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!budget) {
+            return res.status(404).json({ error: 'Budget not found' });
+        }
+        
+        // Get actual transactions for this period
+        const actualTransactions = await FinancialTransaction.find({
+            farmer: req.user.id,
+            transactionDate: { $gte: budget.startDate, $lte: budget.endDate }
+        });
+        
+        // Update budget with actual amounts
+        budget.categories.forEach(category => {
+            const categoryTransactions = actualTransactions.filter(
+                t => t.type === 'expense' && t.category === category.category
+            );
+            category.actualAmount = categoryTransactions.reduce((sum, t) => sum + t.amount, 0);
+        });
+        
+        budget.cropBudgets.forEach(cropBudget => {
+            if (cropBudget.crop) {
+                const cropTransactions = actualTransactions.filter(
+                    t => t.crop && t.crop.toString() === cropBudget.crop.toString()
+                );
+                
+                cropBudget.actualCost = cropTransactions
+                    .filter(t => t.type === 'expense')
+                    .reduce((sum, t) => sum + t.amount, 0);
+                
+                cropBudget.actualRevenue = cropTransactions
+                    .filter(t => t.type === 'income')
+                    .reduce((sum, t) => sum + t.amount, 0);
+            }
+        });
+        
+        // Recalculate variances
+        budget.calculateVariances();
+        await budget.save();
+        
+        res.json(budget);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get financial insights
+router.get('/insights', auth, async (req, res) => {
+    try {
+        const oneYearAgo = new Date();
+        oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+        
+        const [currentYear, previousYear] = await Promise.all([
+            FinancialTransaction.aggregate([
+                {
+                    $match: {
+                        farmer: req.user.id,
+                        transactionDate: { $gte: new Date(new Date().getFullYear(), 0, 1) }
+                    }
+                },
+                {
+                    $group: {
+                        _id: '$category',
+                        total: { $sum: '$amount' }
+                    }
+                }
+            ]),
+            FinancialTransaction.aggregate([
+                {
+                    $match: {
+                        farmer: req.user.id,
+                        transactionDate: {
+                            $gte: new Date(new Date().getFullYear() - 1, 0, 1),
+                            $lt: new Date(new Date().getFullYear(), 0, 1)
+                        }
+                    }
+                },
+                {
+                    $group: {
+                        _id: '$category',
+                        total: { $sum: '$amount' }
+                    }
+                }
+            ])
+        ]);
+        
+        // Calculate insights
+        const insights = [];
+        
+        // Compare fertilizer costs
+        const currentFertilizer = currentYear.find(c => c._id === 'fertilizers')?.total || 0;
+        const prevFertilizer = previousYear.find(c => c._id === 'fertilizers')?.total || 0;
+        
+        if (currentFertilizer > 0 && prevFertilizer > 0) {
+            const change = ((currentFertilizer - prevFertilizer) / prevFertilizer) * 100;
+            if (Math.abs(change) > 15) {
+                insights.push({
+                    type: change > 0 ? 'warning' : 'info',
+                    message: `Fertilizer cost ${change > 0 ? 'increased' : 'decreased'} by ${Math.abs(change).toFixed(1)}% compared to last season`,
+                    severity: Math.abs(change) > 30 ? 'high' : 'medium'
+                });
+            }
+        }
+        
+        // Check labor cost percentage
+        const currentLabor = currentYear.find(c => c._id === 'labor')?.total || 0;
+        const totalCurrent = currentYear.reduce((sum, c) => sum + c.total, 0);
+        
+        if (currentLabor > 0 && totalCurrent > 0) {
+            const laborPercentage = (currentLabor / totalCurrent) * 100;
+            if (laborPercentage > 40) {
+                insights.push({
+                    type: 'warning',
+                    message: `Labor cost is high at ${laborPercentage.toFixed(1)}% of total expenses`,
+                    severity: 'medium'
+                });
+            }
+        }
+        
+        res.json({ insights });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+module.exports = router;
+-e 
+===== FILE: ./routes/cropHealth.js =====
+
+const express = require('express');
+const router = express.Router();
+const auth = require('../middleware/auth');
+const CropHealth = require('../models/CropHealth');
+const Disease = require('../models/DiseaseDatabase');
+const { Crop } = require('../models');
+// Services are not available yet, mock them for now.
+// const { getWeatherData } = require('../services/weatherService');
+// const { analyzeCropImage } = require('../services/aiService');
+
+const getWeatherData = async (location) => {
+    return {
+        temperature: 30,
+        humidity: 60,
+        rainfall: 0,
+        windSpeed: 10
+    };
+};
+
+const analyzeCropImage = async (imageUrl, cropName, cropStage) => {
+    return {
+        predictedDisease: 'Blast',
+        confidence: 0.85
+    };
+};
+
+// Get all crop health records
+router.get('/', auth, async (req, res) => {
+    try {
+        const { status, crop, field, needsAttention } = req.query;
+        
+        let query = { farmer: req.user.id };
+        
+        if (status) query.healthStatus = status;
+        if (crop) query.crop = crop;
+        if (field) query.field = field;
+        
+        let cropHealthRecords = await CropHealth.find(query)
+            .populate('crop', 'name variety area sowingDate')
+            // .populate('field', 'name location') // Field population might fail if Field model is not setup perfectly or used differently. 
+            // Checking index.js, Field is exported.
+            // But let's be safe and comment out potentially missing populations if they cause issues, or ensure they exist.
+            // Field was added in previous steps.
+            .populate('field', 'name location')
+            .sort({ healthScore: 1, lastChecked: -1 });
+        
+        // Filter for crops needing attention
+        if (needsAttention === 'true') {
+            cropHealthRecords = cropHealthRecords.filter(record => 
+                record.healthStatus !== 'healthy' || 
+                record.issues.some(issue => issue.status !== 'resolved')
+            );
+        }
+        
+        // Calculate summary statistics
+        const stats = {
+            totalCrops: cropHealthRecords.length,
+            healthy: cropHealthRecords.filter(c => c.healthStatus === 'healthy').length,
+            warning: cropHealthRecords.filter(c => c.healthStatus === 'warning').length,
+            critical: cropHealthRecords.filter(c => c.healthStatus === 'critical').length,
+            activeIssues: cropHealthRecords.reduce((sum, c) => 
+                sum + c.issues.filter(i => i.status !== 'resolved').length, 0
+            ),
+            pendingAlerts: cropHealthRecords.reduce((sum, c) => 
+                sum + c.alerts.filter(a => !a.acknowledged).length, 0
+            )
+        };
+        
+        res.json({ cropHealthRecords, stats });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get crop health by ID
+router.get('/:id', auth, async (req, res) => {
+    try {
+        const cropHealth = await CropHealth.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        })
+        .populate('crop', 'name variety area sowingDate expectedHarvestDate')
+        .populate('field', 'name size soilType location')
+        .populate('issues.detectedBy', 'name role')
+        .populate('issues.treatment.applied.appliedBy', 'name role');
+        
+        if (!cropHealth) {
+            return res.status(404).json({ error: 'Crop health record not found' });
+        }
+        
+        res.json(cropHealth);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Create or update crop health record
+router.post('/', auth, async (req, res) => {
+    try {
+        const { cropId, growthStage, healthStatus, notes } = req.body;
+        
+        // Check if crop exists
+        const crop = await Crop.findOne({
+            _id: cropId,
+            farmer: req.user.id
+        });
+        
+        if (!crop) {
+            return res.status(404).json({ error: 'Crop not found' });
+        }
+        
+        // Check for existing record
+        let cropHealth = await CropHealth.findOne({
+            farmer: req.user.id,
+            crop: cropId
+        });
+        
+        if (cropHealth) {
+            // Update existing record
+            cropHealth.growthStage = growthStage || cropHealth.growthStage;
+            cropHealth.healthStatus = healthStatus || cropHealth.healthStatus;
+            cropHealth.lastChecked = new Date();
+            cropHealth.lastUpdatedBy = req.user.id;
+            
+            if (notes) {
+                cropHealth.healthHistory.push({
+                    date: new Date(),
+                    healthScore: cropHealth.healthScore,
+                    issuesCount: cropHealth.issues.length,
+                    notes
+                });
+            }
+        } else {
+            // Create new record
+            cropHealth = new CropHealth({
+                farmer: req.user.id,
+                crop: cropId,
+                cropName: crop.name,
+                cropVariety: crop.variety,
+                area: crop.area,
+                growthStage: growthStage || 'sowing',
+                healthStatus: healthStatus || 'healthy',
+                healthScore: 100,
+                lastChecked: new Date(),
+                lastUpdatedBy: req.user.id
+            });
+        }
+        
+        await cropHealth.save();
+        
+        res.json(cropHealth);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Report new issue
+router.post('/:id/issues', auth, async (req, res) => {
+    try {
+        const { 
+            type, name, symptoms, severity, affectedArea, 
+            images, description, fieldId 
+        } = req.body;
+        
+        const cropHealth = await CropHealth.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!cropHealth) {
+            return res.status(404).json({ error: 'Crop health record not found' });
+        }
+        
+        // Create issue
+        const issue = {
+            type,
+            name,
+            symptoms: symptoms || [],
+            severity,
+            affectedArea: affectedArea || 0,
+            detectedDate: new Date(),
+            detectedBy: req.user.id,
+            detectionMethod: 'manual',
+            status: 'detected'
+        };
+        
+        if (images) issue.images = images;
+        if (description) issue.symptoms.push(description);
+        if (fieldId) {
+            cropHealth.field = fieldId;
+        }
+        
+        // Try to auto-diagnose based on symptoms
+        if (symptoms && symptoms.length > 0) {
+            const possibleDiseases = await Disease.searchBySymptoms(symptoms, cropHealth.cropName);
+            
+            if (possibleDiseases.length > 0) {
+                issue.aiAnalysis = {
+                    diseaseName: possibleDiseases[0].name,
+                    confidence: 75, // Placeholder
+                    recommendations: possibleDiseases[0].preventiveMeasures?.slice(0, 3) || [],
+                    modelVersion: '1.0'
+                };
+                
+                issue.treatment = {
+                    recommended: {
+                        pesticides: possibleDiseases[0].chemicalTreatments?.slice(0, 2) || [],
+                        organicAlternatives: possibleDiseases[0].organicTreatments?.slice(0, 2) || [],
+                        culturalPractices: possibleDiseases[0].culturalControls?.slice(0, 3) || [],
+                        preventionTips: possibleDiseases[0].preventiveMeasures?.slice(0, 3) || []
+                    }
+                };
+                
+                issue.status = 'diagnosed';
+            }
+        }
+        
+        cropHealth.issues.push(issue);
+        cropHealth.lastChecked = new Date();
+        cropHealth.lastUpdatedBy = req.user.id;
+        
+        await cropHealth.save();
+        
+        res.json({
+            message: 'Issue reported successfully',
+            issue: cropHealth.issues[cropHealth.issues.length - 1],
+            autoDiagnosis: issue.aiAnalysis ? 'Possible diagnosis found' : 'No auto-diagnosis available'
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// AI Image Analysis for disease detection
+router.post('/ai-diagnosis', auth, async (req, res) => {
+    try {
+        const { imageUrl, cropName, cropStage } = req.body;
+        
+        if (!imageUrl) {
+            return res.status(400).json({ error: 'Image URL is required' });
+        }
+        
+        // Call AI service
+        const aiResult = await analyzeCropImage(imageUrl, cropName, cropStage);
+        
+        // Find matching diseases in database
+        const matchingDiseases = await Disease.find({
+            'crops.crop': cropName,
+            name: { $regex: new RegExp(aiResult.predictedDisease, 'i') }
+        })
+        .limit(3)
+        .lean();
+        
+        res.json({
+            aiAnalysis: aiResult,
+            matchingDiseases,
+            recommendations: matchingDiseases.length > 0 ? 
+                matchingDiseases[0].chemicalTreatments?.slice(0, 2) : []
+        });
+    } catch (error) {
+        console.error('AI diagnosis error:', error);
+        res.status(500).json({ error: 'AI diagnosis service unavailable' });
+    }
+});
+
+// Get treatment recommendations
+router.get('/:id/issues/:issueId/treatments', auth, async (req, res) => {
+    try {
+        const cropHealth = await CropHealth.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!cropHealth) {
+            return res.status(404).json({ error: 'Crop health record not found' });
+        }
+        
+        const issue = cropHealth.issues.id(req.params.issueId);
+        if (!issue) {
+            return res.status(404).json({ error: 'Issue not found' });
+        }
+        
+        // Get detailed treatment options from disease database
+        const diseaseInfo = await Disease.findOne({
+            name: { $regex: new RegExp(issue.name, 'i') },
+            'crops.crop': cropHealth.cropName
+        })
+        .select('chemicalTreatments organicTreatments culturalControls preventiveMeasures')
+        .lean();
+        
+        res.json({
+            issue: issue.name,
+            severity: issue.severity,
+            treatments: diseaseInfo || {
+                chemicalTreatments: [],
+                organicTreatments: [],
+                culturalControls: ['Consult local agriculture officer'],
+                preventiveMeasures: ['Monitor crop regularly']
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Apply treatment
+router.post('/:id/issues/:issueId/treatments/apply', auth, async (req, res) => {
+    try {
+        const { productName, productType, dosage, cost, notes, nextTreatmentDate } = req.body;
+        
+        const cropHealth = await CropHealth.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!cropHealth) {
+            return res.status(404).json({ error: 'Crop health record not found' });
+        }
+        
+        const treatmentData = {
+            productName,
+            productType,
+            dosage,
+            applicationDate: new Date(),
+            appliedBy: req.user.id,
+            cost,
+            notes,
+            nextTreatmentDate: nextTreatmentDate ? new Date(nextTreatmentDate) : null
+        };
+        
+        await cropHealth.updateTreatment(req.params.issueId, treatmentData);
+        
+        res.json({
+            message: 'Treatment applied successfully',
+            treatment: treatmentData
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Mark issue as resolved
+router.post('/:id/issues/:issueId/resolve', auth, async (req, res) => {
+    try {
+        const { notes } = req.body;
+        
+        const cropHealth = await CropHealth.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!cropHealth) {
+            return res.status(404).json({ error: 'Crop health record not found' });
+        }
+        
+        await cropHealth.resolveIssue(req.params.issueId, notes);
+        
+        res.json({ message: 'Issue marked as resolved' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get preventive alerts
+router.get('/:id/alerts', auth, async (req, res) => {
+    try {
+        const cropHealth = await CropHealth.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!cropHealth) {
+            return res.status(404).json({ error: 'Crop health record not found' });
+        }
+        
+        // Get weather-based alerts
+        const weatherAlerts = await getWeatherAlerts(cropHealth);
+        
+        // Get disease risk alerts based on growth stage and season
+        const diseaseAlerts = await getDiseaseRiskAlerts(cropHealth);
+        
+        // Combine alerts
+        const allAlerts = [...weatherAlerts, ...diseaseAlerts];
+        
+        res.json({
+            currentAlerts: cropHealth.alerts.filter(a => !a.acknowledged),
+            preventiveAlerts: allAlerts,
+            totalAlerts: allAlerts.length
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Acknowledge alert
+router.post('/:id/alerts/:alertId/acknowledge', auth, async (req, res) => {
+    try {
+        const cropHealth = await CropHealth.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!cropHealth) {
+            return res.status(404).json({ error: 'Crop health record not found' });
+        }
+        
+        const alert = cropHealth.alerts.id(req.params.alertId);
+        if (!alert) {
+            return res.status(404).json({ error: 'Alert not found' });
+        }
+        
+        alert.acknowledged = true;
+        alert.acknowledgedAt = new Date();
+        
+        await cropHealth.save();
+        
+        res.json({ message: 'Alert acknowledged' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Nutrient deficiency detection
+router.post('/:id/nutrient-analysis', auth, async (req, res) => {
+    try {
+        const { symptoms } = req.body;
+        
+        const cropHealth = await CropHealth.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!cropHealth) {
+            return res.status(404).json({ error: 'Crop health record not found' });
+        }
+        
+        const deficiencies = detectNutrientDeficiency(symptoms, cropHealth.cropName);
+        
+        // Update nutrient status
+        deficiencies.forEach(def => {
+            if (cropHealth.nutrientStatus[def.nutrient]) {
+                cropHealth.nutrientStatus[def.nutrient].level = 'deficient';
+                cropHealth.nutrientStatus[def.nutrient].lastTested = new Date();
+                cropHealth.nutrientStatus[def.nutrient].recommendedFertilizer = def.recommendedFertilizer;
+                cropHealth.nutrientStatus[def.nutrient].dosage = def.dosage;
+            }
+        });
+        
+        await cropHealth.save();
+        
+        res.json({
+            deficiencies,
+            recommendations: deficiencies.map(d => ({
+                nutrient: d.nutrient,
+                fertilizer: d.recommendedFertilizer,
+                dosage: d.dosage,
+                applicationMethod: 'Soil application or foliar spray'
+            }))
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get growth stage guidance
+router.get('/:id/growth-guidance', auth, async (req, res) => {
+    try {
+        const cropHealth = await CropHealth.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        });
+        
+        if (!cropHealth) {
+            return res.status(404).json({ error: 'Crop health record not found' });
+        }
+        
+        const guidance = getGrowthStageGuidance(cropHealth.cropName, cropHealth.growthStage);
+        
+        res.json(guidance);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Get health history
+router.get('/:id/history', auth, async (req, res) => {
+    try {
+        const cropHealth = await CropHealth.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        })
+        .select('healthHistory growthMetrics issues')
+        .lean();
+        
+        if (!cropHealth) {
+            return res.status(404).json({ error: 'Crop health record not found' });
+        }
+        
+        // Process history for chart data
+        const healthTimeline = cropHealth.healthHistory.map(record => ({
+            date: record.date,
+            healthScore: record.healthScore,
+            issuesCount: record.issuesCount
+        }));
+        
+        const issueHistory = cropHealth.issues.map(issue => ({
+            name: issue.name,
+            detectedDate: issue.detectedDate,
+            resolvedDate: issue.resolvedDate,
+            severity: issue.severity,
+            status: issue.status
+        }));
+        
+        res.json({
+            healthTimeline,
+            issueHistory,
+            growthMetrics: cropHealth.growthMetrics,
+            summary: {
+                totalIssues: cropHealth.issues.length,
+                resolvedIssues: cropHealth.issues.filter(i => i.status === 'resolved').length,
+                avgRecoveryTime: calculateAverageRecoveryTime(cropHealth.issues)
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Export crop health report
+router.get('/:id/report', auth, async (req, res) => {
+    try {
+        const cropHealth = await CropHealth.findOne({
+            _id: req.params.id,
+            farmer: req.user.id
+        })
+        .populate('crop', 'name variety area')
+        .populate('field', 'name location');
+        
+        if (!cropHealth) {
+            return res.status(404).json({ error: 'Crop health record not found' });
+        }
+        
+        // Generate report data
+        const report = {
+            crop: cropHealth.cropName,
+            variety: cropHealth.cropVariety,
+            currentHealth: cropHealth.healthStatus,
+            healthScore: cropHealth.healthScore,
+            growthStage: cropHealth.growthStage,
+            lastChecked: cropHealth.lastChecked,
+            
+            activeIssues: cropHealth.issues
+                .filter(issue => issue.status !== 'resolved')
+                .map(issue => ({
+                    name: issue.name,
+                    severity: issue.severity,
+                    affectedArea: issue.affectedArea,
+                    detectedDate: issue.detectedDate
+                })),
+            
+            recentTreatments: cropHealth.issues
+                .flatMap(issue => issue.treatment?.applied || [])
+                .sort((a, b) => new Date(b.applicationDate) - new Date(a.applicationDate))
+                .slice(0, 5),
+            
+            nutrientStatus: cropHealth.nutrientStatus,
+            
+            recommendations: generateRecommendations(cropHealth),
+            
+            generatedAt: new Date()
+        };
+        
+        res.json(report);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Search diseases based on symptoms
+router.post('/search-diseases', auth, async (req, res) => {
+    try {
+        const { symptoms, cropName } = req.body;
+        const diseases = await Disease.searchBySymptoms(symptoms, cropName);
+        res.json(diseases);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Helper functions
+async function getWeatherAlerts(cropHealth) {
+    try {
+        const weather = await getWeatherData(cropHealth.field?.location);
+        
+        const alerts = [];
+        
+        // Check for heavy rainfall alert
+        if (weather.rainfall > 50) { // mm
+            alerts.push({
+                type: 'weather',
+                message: `Heavy rainfall (${weather.rainfall}mm) may cause waterlogging`,
+                severity: 'warning',
+                preventiveMeasures: [
+                    'Ensure proper drainage',
+                    'Avoid irrigation for next 2 days',
+                    'Monitor for fungal diseases'
+                ]
+            });
+        }
+        
+        // Check for high temperature
+        if (weather.temperature > 35) {
+            alerts.push({
+                type: 'weather',
+                message: `High temperature (${weather.temperature}°C) may cause heat stress`,
+                severity: 'warning',
+                preventiveMeasures: [
+                    'Increase irrigation frequency',
+                    'Apply mulch to retain soil moisture',
+                    'Avoid fertilizer application'
+                ]
+            });
+        }
+        
+        // Check for high humidity (fungal disease risk)
+        if (weather.humidity > 80) {
+            alerts.push({
+                type: 'disease_risk',
+                message: 'High humidity increases fungal disease risk',
+                severity: 'alert',
+                preventiveMeasures: [
+                    'Apply preventive fungicide',
+                    'Ensure proper spacing for air circulation',
+                    'Avoid overhead irrigation'
+                ]
+            });
+        }
+        
+        return alerts;
+    } catch (error) {
+        return [];
+    }
+}
+
+async function getDiseaseRiskAlerts(cropHealth) {
+    const diseases = await Disease.find({
+        'crops.crop': cropHealth.cropName,
+        'crops.susceptibleStages': cropHealth.growthStage
+    })
+    .select('name riskLevel favorableConditions preventiveMeasures')
+    .lean();
+    
+    return diseases.map(disease => ({
+        type: 'disease_risk',
+        message: `Risk of ${disease.name} during ${cropHealth.growthStage} stage`,
+        severity: disease.riskLevel === 'high' || disease.riskLevel === 'severe' ? 'alert' : 'warning',
+        preventiveMeasures: disease.preventiveMeasures?.slice(0, 3) || ['Consult agriculture officer']
+    }));
+}
+
+function detectNutrientDeficiency(symptoms, cropName) {
+    const deficiencies = [];
+    
+    // Nitrogen deficiency
+    if (symptoms.includes('yellowing leaves') || symptoms.includes('stunted growth')) {
+        deficiencies.push({
+            nutrient: 'nitrogen',
+            symptoms: ['Yellowing of older leaves', 'Stunted growth'],
+            recommendedFertilizer: 'Urea or Ammonium Sulfate',
+            dosage: cropName === 'Rice' ? '50-60 kg/acre' : '40-50 kg/acre'
+        });
+    }
+    
+    // Phosphorus deficiency
+    if (symptoms.includes('purple leaves') || symptoms.includes('poor root development')) {
+        deficiencies.push({
+            nutrient: 'phosphorus',
+            symptoms: ['Purple or dark green leaves', 'Poor flowering'],
+            recommendedFertilizer: 'DAP or SSP',
+            dosage: cropName === 'Wheat' ? '25-30 kg/acre' : '20-25 kg/acre'
+        });
+    }
+    
+    // Potassium deficiency
+    if (symptoms.includes('brown leaf edges') || symptoms.includes('weak stems')) {
+        deficiencies.push({
+            nutrient: 'potassium',
+            symptoms: ['Brown leaf edges', 'Weak stems'],
+            recommendedFertilizer: 'MOP (Muriate of Potash)',
+            dosage: '20-25 kg/acre'
+        });
+    }
+    
+    return deficiencies;
+}
+
+function getGrowthStageGuidance(cropName, growthStage) {
+    const guidance = {
+        sowing: {
+            normal: 'Seeds germinating, emerging from soil',
+            commonProblems: ['Poor germination', 'Seed rot', 'Bird damage'],
+            do: ['Ensure proper seed depth', 'Maintain soil moisture', 'Use treated seeds'],
+            avoid: ['Planting too deep', 'Overwatering', 'Using old seeds']
+        },
+        vegetative: {
+            normal: 'Rapid leaf and stem growth',
+            commonProblems: ['Nutrient deficiency', 'Pest attack', 'Weed competition'],
+            do: ['Apply nitrogen fertilizer', 'Control weeds', 'Monitor for pests'],
+            avoid: ['Over-fertilization', 'Water stress', 'Ignoring early pest signs']
+        },
+        flowering: {
+            normal: 'Flower formation and pollination',
+            commonProblems: ['Flower drop', 'Poor pollination', 'Pest damage'],
+            do: ['Ensure adequate water', 'Protect from strong winds', 'Monitor flowering'],
+            avoid: ['Water stress', 'Pesticide spray during flowering', 'Disturbing plants']
+        },
+        fruiting: {
+            normal: 'Fruit development and maturation',
+            commonProblems: ['Fruit drop', 'Fruit rot', 'Bird/animal damage'],
+            do: ['Apply potassium fertilizer', 'Support heavy branches', 'Protect fruits'],
+            avoid: ['Over-watering', 'Heavy pesticide use', 'Physical damage to fruits']
+        }
+    };
+    
+    return guidance[growthStage] || {
+        normal: 'Normal growth expected',
+        commonProblems: ['Monitor regularly'],
+        do: ['Follow standard practices'],
+        avoid: ['Neglect monitoring']
+    };
+}
+
+function calculateAverageRecoveryTime(issues) {
+    const resolvedIssues = issues.filter(i => i.resolvedDate && i.detectedDate);
+    if (resolvedIssues.length === 0) return 0;
+    
+    const totalDays = resolvedIssues.reduce((sum, issue) => {
+        const days = Math.ceil((new Date(issue.resolvedDate) - new Date(issue.detectedDate)) / (1000 * 60 * 60 * 24));
+        return sum + days;
+    }, 0);
+    
+    return Math.round(totalDays / resolvedIssues.length);
+}
+
+function generateRecommendations(cropHealth) {
+    const recommendations = [];
+    
+    // Health-based recommendations
+    if (cropHealth.healthScore < 50) {
+        recommendations.push({
+            priority: 'high',
+            action: 'Immediate attention needed',
+            reason: 'Crop health is critical',
+            deadline: 'Today'
+        });
+    }
+    
+    // Issue-based recommendations
+    cropHealth.issues
+        .filter(issue => issue.status !== 'resolved')
+        .forEach(issue => {
+            recommendations.push({
+                priority: issue.severity === 'critical' ? 'high' : 'medium',
+                action: `Treat ${issue.name}`,
+                reason: `${issue.severity} severity, ${issue.affectedArea}% affected`,
+                deadline: 'Within 2 days'
+            });
+        });
+    
+    // Nutrient-based recommendations
+    Object.entries(cropHealth.nutrientStatus).forEach(([nutrient, data]) => {
+        if (data.level === 'deficient') {
+            recommendations.push({
+                priority: 'medium',
+                action: `Apply ${data.recommendedFertilizer}`,
+                reason: `${nutrient} deficiency detected`,
+                deadline: 'Within 1 week'
+            });
+        }
+    });
+    
+    // Alert-based recommendations
+    cropHealth.alerts
+        .filter(alert => !alert.acknowledged)
+        .forEach(alert => {
+            recommendations.push({
+                priority: alert.severity === 'critical' ? 'high' : 'medium',
+                action: alert.preventiveMeasures?.[0] || 'Take preventive action',
+                reason: alert.message,
+                deadline: 'Before next ' + (alert.validTo ? new Date(alert.validTo).toLocaleDateString() : 'check')
+            });
+        });
+    
+    return recommendations;
+}
+
+module.exports = router;
+-e 
+===== FILE: ./middleware/auth.js =====
+
+module.exports = (req, res, next) => {
+    // Mock auth middleware
+    req.user = { id: 'mock_user_id' };
+    next();
+};-e 
+===== FILE: ./package.json =====
+
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.13.4",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongoose": "^9.1.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  }
+}
+-e 
+===== FILE: ./server.js =====
+
+const express = require('express');
+const cors = require('cors');
+const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+
+dotenv.config();
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// MongoDB Connection
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost/farm-management', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+});
+
+// Import Routes
+const authRoutes = require('./routes/auth');
+const farmerRoutes = require('./routes/farmer');
+const supervisorRoutes = require('./routes/supervisor');
+const workerRoutes = require('./routes/worker');
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/farmer', farmerRoutes);
+app.use('/api/supervisor', supervisorRoutes);
+app.use('/api/worker', workerRoutes);
+app.use('/api/crops', require('./routes/crop'));
+app.use('/api/timeline', require('./routes/timeline'));
+app.use('/api/resources', require('./routes/resources'));
+app.use('/api/financial', require('./routes/financial'));
+app.use('/api/crop-health', require('./routes/cropHealth'));
+
+// Basic Route
+app.get('/', (req, res) => {
+    res.json({ message: 'Farm Management System API' });
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
