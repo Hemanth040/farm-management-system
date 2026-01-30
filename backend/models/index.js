@@ -181,6 +181,113 @@ const activitySchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
+// Attendance Schema
+const attendanceSchema = new mongoose.Schema({
+    farmer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    worker: { type: mongoose.Schema.Types.ObjectId, ref: 'Worker', required: true },
+    date: { type: Date, required: true },
+    status: { 
+        type: String, 
+        enum: ['present', 'absent', 'half_day', 'leave'],
+        required: true 
+    },
+    checkIn: String,
+    checkOut: String,
+    location: {
+        lat: Number,
+        lng: Number,
+        address: String
+    },
+    wageAmount: { type: Number, default: 0 },
+    notes: String,
+    markedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    createdAt: { type: Date, default: Date.now }
+});
+
+// Wage Record Schema
+const wageRecordSchema = new mongoose.Schema({
+    farmer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    worker: { type: mongoose.Schema.Types.ObjectId, ref: 'Worker', required: true },
+    amount: { type: Number, required: true },
+    paymentDate: { type: Date, default: Date.now },
+    paymentMode: { 
+        type: String, 
+        enum: ['cash', 'bank_transfer', 'upi', 'check'],
+        default: 'cash'
+    },
+    paymentStatus: { 
+        type: String, 
+        enum: ['pending', 'paid', 'partial', 'cancelled'],
+        default: 'pending'
+    },
+    period: {
+        start: Date,
+        end: Date
+    },
+    bonus: { type: Number, default: 0 },
+    deductions: { type: Number, default: 0 },
+    attendanceDays: { type: Number, default: 0 },
+    notes: String,
+    paidBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    transactionId: String,
+    createdAt: { type: Date, default: Date.now }
+});
+
+// Worker Issue Schema
+const workerIssueSchema = new mongoose.Schema({
+    farmer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    worker: { type: mongoose.Schema.Types.ObjectId, ref: 'Worker', required: true },
+    reportedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    type: { 
+        type: String, 
+        enum: ['equipment_damage', 'crop_problem', 'safety', 'resource_shortage', 'other'],
+        required: true 
+    },
+    title: { type: String, required: true },
+    description: String,
+    activity: { type: mongoose.Schema.Types.ObjectId, ref: 'Activity' },
+    field: { type: mongoose.Schema.Types.ObjectId, ref: 'Field' },
+    photos: [String],
+    status: { 
+        type: String, 
+        enum: ['open', 'in_progress', 'resolved', 'closed'],
+        default: 'open'
+    },
+    priority: { 
+        type: String, 
+        enum: ['low', 'medium', 'high', 'urgent'],
+        default: 'medium'
+    },
+    resolution: String,
+    resolvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    resolvedAt: Date,
+    createdAt: { type: Date, default: Date.now }
+});
+
+// Leave Request Schema
+const leaveRequestSchema = new mongoose.Schema({
+    farmer: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    worker: { type: mongoose.Schema.Types.ObjectId, ref: 'Worker', required: true },
+    startDate: { type: Date, required: true },
+    endDate: { type: Date, required: true },
+    type: { 
+        type: String, 
+        enum: ['sick', 'casual', 'emergency', 'festival', 'other'],
+        required: true 
+    },
+    reason: String,
+    status: { 
+        type: String, 
+        enum: ['pending', 'approved', 'rejected'],
+        default: 'pending'
+    },
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    approvedAt: Date,
+    notes: String,
+    createdAt: { type: Date, default: Date.now }
+});
+
 // Create models (checking if they exist first to prevent overwrite errors in some environments)
 const Crop = mongoose.models.Crop || mongoose.model('Crop', cropSchema);
 const CropPlan = mongoose.models.CropPlan || mongoose.model('CropPlan', cropPlanSchema);
@@ -192,6 +299,10 @@ const Sale = mongoose.models.Sale || mongoose.model('Sale', saleSchema);
 const Expense = mongoose.models.Expense || mongoose.model('Expense', expenseSchema);
 const Income = mongoose.models.Income || mongoose.model('Income', incomeSchema);
 const Activity = mongoose.models.Activity || mongoose.model('Activity', activitySchema);
+const Attendance = mongoose.models.Attendance || mongoose.model('Attendance', attendanceSchema);
+const WageRecord = mongoose.models.WageRecord || mongoose.model('WageRecord', wageRecordSchema);
+const WorkerIssue = mongoose.models.WorkerIssue || mongoose.model('WorkerIssue', workerIssueSchema);
+const LeaveRequest = mongoose.models.LeaveRequest || mongoose.model('LeaveRequest', leaveRequestSchema);
 
 // Import existing models
 const User = require('./User');
@@ -222,5 +333,9 @@ module.exports = {
     Warning,
     Sale,
     Expense,
-    Income
+    Income,
+    Attendance,
+    WageRecord,
+    WorkerIssue,
+    LeaveRequest
 };

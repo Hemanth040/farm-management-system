@@ -20,6 +20,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost/farm-management
 const authRoutes = require('./routes/auth');
 const farmerRoutes = require('./routes/farmer');
 const workerRoutes = require('./routes/worker');
+const workerManagementRoutes = require('./routes/workerManagement');
 const supervisorRoutes = require('./routes/supervisor');
 const cropRoutes = require('./routes/crop');
 const timelineRoutes = require('./routes/timeline');
@@ -32,6 +33,7 @@ const reportsRoutes = require('./routes/reports');
 app.use('/api/auth', authRoutes);
 app.use('/api/farmer', farmerRoutes);
 app.use('/api/worker', workerRoutes);
+app.use('/api/workers', workerManagementRoutes);
 app.use('/api/supervisor', supervisorRoutes);
 app.use('/api/crops', cropRoutes);
 app.use('/api/timeline', timelineRoutes);

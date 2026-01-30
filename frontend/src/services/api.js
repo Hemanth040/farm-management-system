@@ -220,19 +220,88 @@ export const cropService = {
 
 export const workerService = {
     // Get all workers
-    getWorkers: () => api.get('/farmer/workers').then(res => res.data),
+    getWorkers: (filters = {}) => {
+        const params = new URLSearchParams(filters).toString();
+        return api.get(`/workers?${params}`).then(res => res.data);
+    },
     
-    // Get a single worker by ID
-    getWorkerById: (id) => api.get(`/farmer/workers/${id}`).then(res => res.data),
+    // Get a single worker by ID with full details
+    getWorkerById: (id) => api.get(`/workers/${id}`).then(res => res.data),
     
     // Create a new worker
-    createWorker: (data) => api.post('/farmer/workers', data).then(res => res.data),
+    createWorker: (data) => api.post('/workers', data).then(res => res.data),
     
     // Update a worker
-    updateWorker: (id, data) => api.put(`/farmer/workers/${id}`, data).then(res => res.data),
+    updateWorker: (id, data) => api.put(`/workers/${id}`, data).then(res => res.data),
     
-    // Delete a worker
-    deleteWorker: (id) => api.delete(`/farmer/workers/${id}`).then(res => res.data)
+    // Delete/Deactivate a worker
+    deleteWorker: (id) => api.delete(`/workers/${id}`).then(res => res.data),
+    
+    // Assign task to worker
+    assignTask: (workerId, data) => api.post(`/workers/${workerId}/assign`, data).then(res => res.data),
+    
+    // Get worker's tasks
+    getWorkerTasks: (workerId, filters = {}) => {
+        const params = new URLSearchParams(filters).toString();
+        return api.get(`/workers/${workerId}/tasks?${params}`).then(res => res.data);
+    }
+};
+
+// Enhanced Worker Management Service
+export const workerManagementService = {
+    // Attendance Management
+    getAttendanceReport: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/workers/attendance/report?${queryParams}`).then(res => res.data);
+    },
+    
+    getTodayAttendance: () => api.get('/workers/attendance/today').then(res => res.data),
+    
+    markAttendance: (data) => api.post('/workers/attendance', data).then(res => res.data),
+    
+    markBulkAttendance: (data) => api.post('/workers/attendance/bulk', data).then(res => res.data),
+    
+    // Wages & Payments
+    calculateWages: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/workers/wages/calculate?${queryParams}`).then(res => res.data);
+    },
+    
+    recordPayment: (data) => api.post('/workers/wages/pay', data).then(res => res.data),
+    
+    getWorkerWages: (workerId, params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/workers/${workerId}/wages?${queryParams}`).then(res => res.data);
+    },
+    
+    generateWageSlip: (workerId, wageId) => 
+        api.get(`/workers/${workerId}/wage-slip/${wageId}`).then(res => res.data),
+    
+    // Issue Reporting
+    reportIssue: (data) => api.post('/workers/issues', data).then(res => res.data),
+    
+    getIssues: (filters = {}) => {
+        const params = new URLSearchParams(filters).toString();
+        return api.get(`/workers/issues?${params}`).then(res => res.data);
+    },
+    
+    updateIssue: (issueId, data) => api.put(`/workers/issues/${issueId}`, data).then(res => res.data),
+    
+    // Leave Management
+    requestLeave: (data) => api.post('/workers/leave', data).then(res => res.data),
+    
+    getLeaveRequests: (filters = {}) => {
+        const params = new URLSearchParams(filters).toString();
+        return api.get(`/workers/leave?${params}`).then(res => res.data);
+    },
+    
+    updateLeaveStatus: (leaveId, data) => api.put(`/workers/leave/${leaveId}`, data).then(res => res.data),
+    
+    // Performance Reports
+    getPerformanceReport: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/workers/performance/report?${queryParams}`).then(res => res.data);
+    }
 };
 
 export const authService = {

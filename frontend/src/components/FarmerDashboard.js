@@ -38,6 +38,7 @@ import ResourcesManagement from './ResourcesManagement';
 import FinancialDashboard from './FinancialDashboard';
 import CropHealthDashboard from './CropHealthDashboard';
 import ReportsDashboard from './ReportsDashboard';
+import WorkersManagement from './WorkersManagement';
 
 const FarmerDashboard = () => {
     const [activeTab, setActiveTab] = useState('overview');
@@ -296,6 +297,7 @@ const FarmerDashboard = () => {
             {activeTab === 'financial' && <FinancialDashboard />}
             {activeTab === 'diseases' && <CropHealthDashboard />}
             {activeTab === 'reports' && <ReportsDashboard />}
+            {activeTab === 'workers' && <WorkersManagement />}
             {/* activeTab === 'planner' is handled by navigation now */}
         </Container>
     );
