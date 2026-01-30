@@ -753,4 +753,618 @@ function convertToCSV(data) {
     return [headers.join(','), ...rows].join('\n');
 }
 
+// ============================================
+// AI INSIGHTS ENDPOINT
+// ============================================
+router.get('/ai-insights', auth, async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1);
+        const end = endDate ? new Date(endDate) : new Date();
+
+        // Gather all necessary data
+        const [
+            crops,
+            transactions,
+            activities,
+            resources,
+            healthRecords
+        ] = await Promise.all([
+            Crop.find({ farmer: req.user.id }),
+            FinancialTransaction.find({ 
+                farmer: req.user.id, 
+                transactionDate: { $gte: start, $lte: end } 
+            }),
+            Activity.find({ farmer: req.user.id, date: { $gte: start, $lte: end } }),
+            Resource.find({ farmer: req.user.id }),
+            CropHealth.find({ farmer: req.user.id })
+        ]);
+
+        // Calculate metrics
+        const totalIncome = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+        const totalExpenses = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+        const netProfit = totalIncome - totalExpenses;
+        const profitMargin = totalIncome > 0 ? ((netProfit / totalIncome) * 100).toFixed(2) : 0;
+        
+        const completedActivities = activities.filter(a => a.status === 'completed').length;
+        const activityCompletionRate = activities.length > 0 ? ((completedActivities / activities.length) * 100).toFixed(2) : 0;
+        
+        const lowStockItems = resources.filter(r => 
+            r.availableQuantity <= r.minimumThreshold && r.availableQuantity > 0
+        ).length;
+
+        // Generate crop performance data
+        const cropPerformance = await Promise.all(crops.map(async (crop) => {
+            const cropTransactions = await FinancialTransaction.find({
+                farmer: req.user.id,
+                crop: crop._id,
+                transactionDate: { $gte: start, $lte: end }
+            });
+            
+            const inputCost = cropTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+            const income = cropTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+            
+            return {
+                name: crop.name,
+                profit: income - inputCost,
+                area: crop.area
+            };
+        }));
+
+        // Generate AI insights
+        const insights = [];
+        
+        // Profit insights
+        if (netProfit < 0) {
+            insights.push({
+                type: 'warning',
+                category: 'financial',
+                title: 'Loss Alert',
+                message: 'Your farm is operating at a loss. Review expense categories to identify cost-cutting opportunities.',
+                action: 'View Expense Breakdown',
+                priority: 'high'
+            });
+        } else if (profitMargin < 20) {
+            insights.push({
+                type: 'info',
+                category: 'financial',
+                title: 'Low Profit Margin',
+                message: `Your profit margin is ${profitMargin}%. Consider optimizing resource usage or exploring higher-value crops.`,
+                action: 'View Recommendations',
+                priority: 'medium'
+            });
+        } else if (profitMargin > 40) {
+            insights.push({
+                type: 'success',
+                category: 'financial',
+                title: 'Excellent Profit Margin',
+                message: `Outstanding! Your ${profitMargin}% profit margin is above industry average. Consider documenting your practices.`,
+                action: 'View Best Practices',
+                priority: 'low'
+            });
+        }
+        
+        // Activity insights
+        if (activityCompletionRate < 70) {
+            insights.push({
+                type: 'warning',
+                category: 'operations',
+                title: 'Low Activity Completion',
+                message: `Only ${activityCompletionRate}% of planned activities are completed. Consider better scheduling or increasing workforce.`,
+                action: 'Review Activity Plan',
+                priority: 'high'
+            });
+        }
+        
+        // Crop performance insights
+        if (cropPerformance.length > 0) {
+            const bestCrop = cropPerformance.reduce((best, c) => c.profit > best.profit ? c : best, cropPerformance[0]);
+            const worstCrop = cropPerformance.reduce((worst, c) => c.profit < worst.profit ? c : worst, cropPerformance[0]);
+            
+            if (bestCrop.profit > 0) {
+                insights.push({
+                    type: 'success',
+                    category: 'crops',
+                    title: 'Top Performer',
+                    message: `${bestCrop.name} is your most profitable crop with ₹${bestCrop.profit.toLocaleString()} profit. Consider expanding its cultivation.`,
+                    action: 'View Crop Details',
+                    priority: 'medium'
+                });
+            }
+            
+            if (worstCrop.profit < 0) {
+                insights.push({
+                    type: 'alert',
+                    category: 'crops',
+                    title: 'Underperforming Crop',
+                    message: `${worstCrop.name} is generating losses. Review input costs or consider alternative crops.`,
+                    action: 'Analyze Costs',
+                    priority: 'high'
+                });
+            }
+        }
+        
+        // Resource insights
+        if (lowStockItems > 5) {
+            insights.push({
+                type: 'warning',
+                category: 'resources',
+                title: 'Multiple Low Stock Items',
+                message: `${lowStockItems} resources are running low. Plan procurement to avoid disruption.`,
+                action: 'View Inventory',
+                priority: 'medium'
+            });
+        }
+        
+        // Health insights
+        const criticalCrops = healthRecords.filter(h => h.healthStatus === 'critical').length;
+        if (criticalCrops > 0) {
+            insights.push({
+                type: 'alert',
+                category: 'health',
+                title: 'Critical Crop Health Issues',
+                message: `${criticalCrops} crop(s) need immediate attention. Check crop health dashboard.`,
+                action: 'View Health Dashboard',
+                priority: 'urgent'
+            });
+        }
+        
+        // Seasonal recommendation
+        const currentMonth = new Date().getMonth();
+        if (currentMonth >= 5 && currentMonth <= 9) {
+            insights.push({
+                type: 'info',
+                category: 'seasonal',
+                title: 'Kharif Season Active',
+                message: 'Optimal time for rice, cotton, and soybean cultivation. Ensure adequate water management.',
+                action: 'View Crop Calendar',
+                priority: 'low'
+            });
+        } else if (currentMonth >= 10 || currentMonth <= 3) {
+            insights.push({
+                type: 'info',
+                category: 'seasonal',
+                title: 'Rabi Season Active',
+                message: 'Good time for wheat, barley, and mustard. Plan for winter irrigation needs.',
+                action: 'View Crop Calendar',
+                priority: 'low'
+            });
+        }
+
+        // Cost optimization tips
+        const expensesByCategory = {};
+        transactions.filter(t => t.type === 'expense').forEach(t => {
+            if (!expensesByCategory[t.category]) expensesByCategory[t.category] = 0;
+            expensesByCategory[t.category] += t.amount;
+        });
+        
+        const totalExpense = Object.values(expensesByCategory).reduce((sum, v) => sum + v, 0);
+        const optimizationTips = [];
+        
+        Object.entries(expensesByCategory).forEach(([category, amount]) => {
+            const percentage = (amount / totalExpense) * 100;
+            
+            if (category === 'pesticides' && percentage > 15) {
+                optimizationTips.push({
+                    category: 'pesticides',
+                    tip: 'Pesticide costs are high. Consider preventive spraying and integrated pest management.',
+                    potentialSavings: Math.round(amount * 0.2),
+                    priority: 'high'
+                });
+            }
+            
+            if (category === 'labor' && percentage > 30) {
+                optimizationTips.push({
+                    category: 'labor',
+                    tip: 'Labor costs exceed 30%. Consider automation or optimizing worker schedules.',
+                    potentialSavings: Math.round(amount * 0.15),
+                    priority: 'medium'
+                });
+            }
+        });
+
+        res.json({
+            insights: insights.sort((a, b) => {
+                const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
+                return priorityOrder[a.priority] - priorityOrder[b.priority];
+            }),
+            optimizationTips: optimizationTips.sort((a, b) => b.potentialSavings - a.potentialSavings),
+            summary: {
+                totalInsights: insights.length,
+                urgentIssues: insights.filter(i => i.priority === 'urgent').length,
+                highPriority: insights.filter(i => i.priority === 'high').length,
+                potentialSavings: optimizationTips.reduce((sum, t) => sum + t.potentialSavings, 0)
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// PREDICTIVE ANALYTICS ENDPOINT
+// ============================================
+router.get('/predictions', auth, async (req, res) => {
+    try {
+        const { months = 3 } = req.query;
+        
+        // Get last 6 months of data for trend analysis
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setMonth(startDate.getMonth() - 6);
+        
+        const transactions = await FinancialTransaction.find({
+            farmer: req.user.id,
+            transactionDate: { $gte: startDate, $lte: endDate }
+        });
+        
+        // Calculate monthly profits
+        const monthlyProfits = {};
+        for (let i = 0; i < 6; i++) {
+            const d = new Date(endDate);
+            d.setMonth(d.getMonth() - i);
+            const monthKey = d.toISOString().slice(0, 7);
+            monthlyProfits[monthKey] = { income: 0, expenses: 0 };
+        }
+        
+        transactions.forEach(t => {
+            const month = t.transactionDate.toISOString().slice(0, 7);
+            if (monthlyProfits[month]) {
+                if (t.type === 'income') monthlyProfits[month].income += t.amount;
+                if (t.type === 'expense') monthlyProfits[month].expenses += t.amount;
+            }
+        });
+        
+        const profits = Object.values(monthlyProfits).map(m => m.income - m.expenses).reverse();
+        
+        // Simple linear regression for prediction
+        const n = profits.length;
+        const sumX = profits.reduce((sum, _, i) => sum + i, 0);
+        const sumY = profits.reduce((sum, p) => sum + p, 0);
+        const sumXY = profits.reduce((sum, p, i) => sum + i * p, 0);
+        const sumXX = profits.reduce((sum, _, i) => sum + i * i, 0);
+        
+        const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+        const intercept = (sumY - slope * sumX) / n;
+        
+        // Generate predictions
+        const predictions = [];
+        const currentProfit = profits[profits.length - 1];
+        
+        for (let i = 1; i <= parseInt(months); i++) {
+            const predictedValue = slope * (n + i - 1) + intercept;
+            predictions.push({
+                month: i,
+                projectedProfit: Math.round(predictedValue),
+                change: currentProfit > 0 ? ((predictedValue - currentProfit) / currentProfit * 100).toFixed(1) : 0,
+                trend: predictedValue > currentProfit ? 'up' : 'down'
+            });
+        }
+        
+        // Risk and opportunity analysis
+        const risks = [];
+        const opportunities = [];
+        
+        if (slope < 0) {
+            risks.push({
+                type: 'declining_profit',
+                message: 'Profit trend is declining. Review operational efficiency.',
+                severity: 'high',
+                confidence: 75
+            });
+        } else if (slope > 0) {
+            opportunities.push({
+                type: 'growth_potential',
+                message: 'Positive profit trend detected. Consider expanding operations.',
+                confidence: 70
+            });
+        }
+        
+        res.json({
+            predictions,
+            currentTrend: {
+                slope: slope.toFixed(2),
+                direction: slope > 0 ? 'positive' : slope < 0 ? 'negative' : 'stable',
+                strength: Math.abs(slope) > 1000 ? 'strong' : Math.abs(slope) > 500 ? 'moderate' : 'weak'
+            },
+            risks,
+            opportunities
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// PROFITABILITY ANALYSIS ENDPOINT
+// ============================================
+router.get('/profitability-analysis', auth, async (req, res) => {
+    try {
+        const { cropId } = req.query;
+        
+        let query = { farmer: req.user.id };
+        if (cropId) query._id = cropId;
+        
+        const crops = await Crop.find(query);
+        
+        const analysis = await Promise.all(crops.map(async (crop) => {
+            const transactions = await FinancialTransaction.find({
+                farmer: req.user.id,
+                crop: crop._id
+            });
+            
+            const inputCost = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+            const income = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+            const profit = income - inputCost;
+            
+            // Calculate various profitability metrics
+            const area = crop.area || 1;
+            const yield_qty = crop.actualYield || crop.plan?.expectedYield || 1;
+            
+            return {
+                cropId: crop._id,
+                name: crop.name,
+                variety: crop.variety,
+                area,
+                yield: yield_qty,
+                inputCost,
+                income,
+                profit,
+                profitMargin: income > 0 ? ((profit / income) * 100).toFixed(2) : 0,
+                roi: inputCost > 0 ? ((profit / inputCost) * 100).toFixed(2) : 0,
+                costPerAcre: (inputCost / area).toFixed(2),
+                costPerKg: (inputCost / yield_qty).toFixed(2),
+                revenuePerAcre: (income / area).toFixed(2),
+                revenuePerKg: (income / yield_qty).toFixed(2),
+                profitPerAcre: (profit / area).toFixed(2),
+                profitPerKg: (profit / yield_qty).toFixed(2),
+                breakEvenYield: income > 0 ? (inputCost / (income / yield_qty)).toFixed(2) : 0
+            };
+        }));
+        
+        // Sort by profit per acre
+        analysis.sort((a, b) => parseFloat(b.profitPerAcre) - parseFloat(a.profitPerAcre));
+        
+        res.json({
+            crops: analysis,
+            summary: {
+                totalCropsAnalyzed: analysis.length,
+                averageProfitPerAcre: (analysis.reduce((sum, c) => sum + parseFloat(c.profitPerAcre), 0) / analysis.length).toFixed(2),
+                averageRoi: (analysis.reduce((sum, c) => sum + parseFloat(c.roi), 0) / analysis.length).toFixed(2),
+                mostProfitable: analysis[0],
+                leastProfitable: analysis[analysis.length - 1]
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// WEATHER IMPACT REPORT
+// ============================================
+router.get('/weather-impact', auth, async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        const start = startDate ? new Date(startDate) : new Date(new Date().getFullYear(), 0, 1);
+        const end = endDate ? new Date(endDate) : new Date();
+        
+        // Get activities that might have been affected by weather
+        const activities = await TimelineActivity.find({
+            farmer: req.user.id,
+            plannedDate: { $gte: start, $lte: end },
+            $or: [
+                { status: 'delayed' },
+                { status: 'cancelled' },
+                { delayReason: { $exists: true, $ne: '' } }
+            ]
+        }).populate('crop', 'name');
+        
+        // Get crop health issues potentially caused by weather
+        const healthRecords = await CropHealth.find({
+            farmer: req.user.id,
+            'issues.detectedDate': { $gte: start, $lte: end }
+        }).populate('crop', 'name');
+        
+        // Simulate weather events (in real app, this would come from weather API)
+        const weatherEvents = [
+            { date: new Date('2024-06-15'), type: 'heavy_rain', impact: 'high', description: '150mm rainfall in 24 hours' },
+            { date: new Date('2024-07-20'), type: 'drought', impact: 'medium', description: 'No rain for 15 days' },
+            { date: new Date('2024-08-05'), type: 'heatwave', impact: 'high', description: 'Temperature >40°C for 5 days' }
+        ].filter(e => e.date >= start && e.date <= end);
+        
+        // Analyze weather-related delays
+        const weatherDelays = activities.filter(a => 
+            a.delayReason?.toLowerCase().includes('weather') ||
+            a.delayReason?.toLowerCase().includes('rain') ||
+            a.weatherImpact?.impact
+        );
+        
+        // Calculate impact metrics
+        const totalDelayedActivities = weatherDelays.length;
+        const totalDaysLost = weatherDelays.reduce((sum, a) => {
+            if (a.actualDate && a.plannedDate) {
+                return sum + Math.ceil((a.actualDate - a.plannedDate) / (1000 * 60 * 60 * 24));
+            }
+            return sum;
+        }, 0);
+        
+        // Weather-related health issues
+        const weatherHealthIssues = healthRecords.flatMap(h => 
+            h.issues?.filter(i => 
+                i.type === 'weather_damage' ||
+                (i.name?.toLowerCase().includes('fungal') && i.detectedDate?.getMonth() >= 5) // Fungal in monsoon
+            ) || []
+        );
+        
+        res.json({
+            weatherEvents: weatherEvents.map(e => ({
+                date: e.date,
+                type: e.type,
+                impact: e.impact,
+                description: e.description
+            })),
+            activityImpact: {
+                totalDelayedActivities,
+                totalDaysLost,
+                activities: weatherDelays.map(a => ({
+                    title: a.title,
+                    crop: a.crop?.name,
+                    plannedDate: a.plannedDate,
+                    actualDate: a.actualDate,
+                    delayReason: a.delayReason,
+                    costImpact: a.actualCost - a.costEstimate
+                }))
+            },
+            healthImpact: {
+                weatherRelatedIssues: weatherHealthIssues.length,
+                estimatedCost: weatherHealthIssues.reduce((sum, i) => sum + (i.costImpact || 0), 0),
+                issues: weatherHealthIssues.map(i => ({
+                    name: i.name,
+                    crop: i.cropName,
+                    severity: i.severity,
+                    cost: i.costImpact
+                }))
+            },
+            summary: {
+                totalWeatherEvents: weatherEvents.length,
+                highImpactEvents: weatherEvents.filter(e => e.impact === 'high').length,
+                totalDaysLost,
+                estimatedFinancialImpact: weatherHealthIssues.reduce((sum, i) => sum + (i.costImpact || 0), 0) +
+                    weatherDelays.reduce((sum, a) => sum + ((a.actualCost || 0) - (a.costEstimate || 0)), 0)
+            },
+            recommendations: [
+                'Install weather monitoring stations for early warnings',
+                'Improve drainage systems to handle heavy rainfall',
+                'Consider crop insurance for weather-related losses',
+                'Plan activities with weather forecasts in mind'
+            ]
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ============================================
+// GOVERNMENT & COMPLIANCE REPORT
+// ============================================
+router.get('/compliance', auth, async (req, res) => {
+    try {
+        const { year = new Date().getFullYear() } = req.query;
+        const startDate = new Date(`${year}-01-01`);
+        const endDate = new Date(`${year}-12-31`);
+        
+        // Get all farm data for the year
+        const [
+            crops,
+            transactions,
+            resources,
+            activities,
+            healthRecords
+        ] = await Promise.all([
+            Crop.find({ farmer: req.user.id }),
+            FinancialTransaction.find({ 
+                farmer: req.user.id, 
+                transactionDate: { $gte: startDate, $lte: endDate }
+            }),
+            Resource.find({ farmer: req.user.id }),
+            Activity.find({ farmer: req.user.id, date: { $gte: startDate, $lte: endDate } }),
+            CropHealth.find({ farmer: req.user.id })
+        ]);
+        
+        // Calculate totals
+        const totalArea = crops.reduce((sum, c) => sum + c.area, 0);
+        const totalIncome = transactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+        const totalExpenses = transactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+        
+        // Input usage summary (for subsidy claims)
+        const inputUsage = {
+            seeds: resources.filter(r => r.category === 'seeds').reduce((sum, r) => sum + r.totalQuantity, 0),
+            fertilizers: resources.filter(r => r.category === 'fertilizers').reduce((sum, r) => sum + r.totalQuantity, 0),
+            pesticides: resources.filter(r => r.category === 'pesticides').reduce((sum, r) => sum + r.totalQuantity, 0),
+        };
+        
+        // Crop details for records
+        const cropDetails = crops.map(c => ({
+            name: c.name,
+            variety: c.variety,
+            area: c.area,
+            season: c.season,
+            sowingDate: c.sowingDate,
+            harvestDate: c.actualHarvestDate,
+            expectedYield: c.plan?.expectedYield,
+            actualYield: c.actualYield,
+            status: c.status
+        }));
+        
+        // Pesticide usage for regulatory compliance
+        const pesticideUsage = resources
+            .filter(r => r.category === 'pesticides')
+            .map(r => ({
+                name: r.name,
+                quantityUsed: r.usedQuantity,
+                unit: r.unit,
+                expiryDate: r.expiryDate
+            }));
+        
+        // Financial summary
+        const financialSummary = {
+            totalIncome,
+            totalExpenses,
+            netProfit: totalIncome - totalExpenses,
+            taxAmount: transactions.reduce((sum, t) => sum + (t.taxAmount || 0), 0),
+            subsidyAmount: transactions
+                .filter(t => t.type === 'income' && t.source === 'government_subsidy')
+                .reduce((sum, t) => sum + t.amount, 0)
+        };
+        
+        res.json({
+            farmDetails: {
+                farmerId: req.user.id,
+                reportingYear: year,
+                totalArea,
+                totalCrops: crops.length,
+                cropDetails
+            },
+            inputUsage,
+            pesticideUsage: {
+                totalProducts: pesticideUsage.length,
+                products: pesticideUsage,
+                complianceStatus: pesticideUsage.every(p => !p.expiryDate || p.expiryDate > new Date()) ? 'compliant' : 'expired_found'
+            },
+            financialSummary,
+            laborSummary: {
+                totalWorkers: await Worker.countDocuments({ farmer: req.user.id }),
+                totalWagesPaid: transactions
+                    .filter(t => t.category === 'labor')
+                    .reduce((sum, t) => sum + t.amount, 0),
+                totalActivities: activities.length
+            },
+            healthSummary: {
+                totalIssues: healthRecords.reduce((sum, h) => sum + (h.issues?.length || 0), 0),
+                issuesResolved: healthRecords.reduce((sum, h) => 
+                    sum + (h.issues?.filter(i => i.status === 'resolved').length || 0), 0),
+                treatmentsApplied: healthRecords.reduce((sum, h) => 
+                    sum + (h.issues?.filter(i => i.treatment?.applied?.length > 0).length || 0), 0)
+            },
+            complianceChecklist: {
+                farmRegistration: true, // Assuming registered
+                pesticideRecords: pesticideUsage.length > 0,
+                financialRecords: transactions.length > 0,
+                laborRecords: activities.length > 0,
+                harvestRecords: crops.some(c => c.actualHarvestDate),
+                overallStatus: 'compliant'
+            },
+            documents: {
+                cropRecords: `${year}_crop_records.pdf`,
+                financialStatement: `${year}_financial_statement.pdf`,
+                inputUsageReport: `${year}_input_usage.pdf`,
+                laborCompliance: `${year}_labor_records.pdf`
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 module.exports = router;

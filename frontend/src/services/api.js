@@ -345,6 +345,36 @@ export const reportsService = {
         return api.get(`/reports/seasonal-comparison?${queryParams}`).then(res => res.data);
     },
     
+    // AI Insights
+    getAIInsights: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/reports/ai-insights?${queryParams}`).then(res => res.data);
+    },
+    
+    // Predictive Analytics
+    getPredictions: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/reports/predictions?${queryParams}`).then(res => res.data);
+    },
+    
+    // Profitability Analysis
+    getProfitabilityAnalysis: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/reports/profitability-analysis?${queryParams}`).then(res => res.data);
+    },
+    
+    // Weather Impact Report
+    getWeatherImpact: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/reports/weather-impact?${queryParams}`).then(res => res.data);
+    },
+    
+    // Government & Compliance Report
+    getComplianceReport: (params = {}) => {
+        const queryParams = new URLSearchParams(params).toString();
+        return api.get(`/reports/compliance?${queryParams}`).then(res => res.data);
+    },
+    
     // Export Report
     exportReport: (reportType, format, params = {}) => {
         return api.post('/reports/export', { reportType, format, filters: params }, {
