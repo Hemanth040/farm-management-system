@@ -78,6 +78,7 @@ import {
     Edit,
     Delete,
     Done,
+    Dashboard,
     Snooze,
     Refresh,
     ExpandMore,
